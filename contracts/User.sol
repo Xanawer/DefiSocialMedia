@@ -13,11 +13,15 @@ contract User {
     mapping(address => UserData) private users;
     
     // Function to create a new user
-    function createUser() public {
+    function createUser(string memory _name, string memory _email, uint _age) public {
+        UserData memory newUser = UserData(_name, _email, _age);
+        users[msg.sender] = newUser;
     }
     
     // Function to retrieve user data by address
-    function getUser() public {
+    function getUser() public view returns(string memory, string memory, uint) {
+        UserData memory currentUser = users[msg.sender];
+        return (currentUser.name, currentUser.email, currentUser.age);
     }
     
     // Function to update user data

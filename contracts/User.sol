@@ -25,10 +25,17 @@ contract User {
     }
     
     // Function to update user data
-    function updateUser() public {
+    function updateUser(string memory _name, string memory _email, uint _age) public {
+        UserData memory currentUser = users[msg.sender];
+        currentUser.name = _name;
+        currentUser.email = _email;
+        currentUser.age = _age;
+        users[msg.sender] = currentUser;
     }
     
     // Function to delete user data
     function deleteUser() public {
+        delete users[msg.sender];
     }
+
 }

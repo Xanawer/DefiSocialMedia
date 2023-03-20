@@ -48,8 +48,8 @@ contract Post {
 		_;
 	}
 
-	constructor (string memory baseURI){
-		nftContract = new MediaNFT(baseURI);
+	constructor () {
+		nftContract = new MediaNFT();
 		owner = msg.sender;
 	}
 
@@ -71,11 +71,13 @@ contract Post {
 		return post;
 	}
 
-	function createPost(string memory caption, int mediaNFTID) public {
-		// input of negative media nft ID indicates this post has no media
-		if (mediaNFTID >= 0) {
+	function createPost(string memory caption, string memory ipfsCID) public {
+		// default value of -1 indicates this post does not have any media attached to it
+		int mediaNFTID = -1;
+		// if this post has a media (i.e cid fill is non empty)
+		if (bytes(ipfsCID).length > 0) { // same as ipfsCID != "", but cant do that in solidity
 			// mint nft to user
-			nftContract.mint(msg.sender, uint(mediaNFTID));
+			mediaNFTID = int(nftContract.mint(msg.sender, ipfsCID));
 		}
 		PostData storage post = idToPost[nextPostID];
 
@@ -122,8 +124,15 @@ contract Post {
 		idToPost[id].deleted = true;
 	}
 
-	function setBaseURI(string memory baseURI) public contractOwnerOnly {
-		nftContract.setBaseURI(baseURI);
+
+	function getTokenURIByTokenID(uint id) public view returns (string memory) {
+		return nftContract.tokenURI(id);
+	}
+
+	function getTokenURIByPostID(uint id) public view validPost(id) returns (string memory) {
+		int tokenId = idToPost[id].mediaNFTID;
+		require(tokenId >= 0, "this post does not have media");
+		return getTokenURIByTokenID(uint(tokenId));
 	}
 }
 

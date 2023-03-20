@@ -1,30 +1,36 @@
 pragma solidity ^0.8.0;
 
-import '@openzeppelin/contracts/token/ERC721/ERC721.sol';
+import '@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol';
 // ERC721: https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/token/ERC721/ERC721.sol
-
-contract MediaNFT is ERC721 {
-	string baseURI; // base URI that links to the media of this NFT
+// ERC721URIStorage: https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/token/extensions/ERC721URIStorage.sol
+contract MediaNFT is ERC721URIStorage {
 	address owner;
+	string BASE_URI = "https://cloudflare-ipfs.com/ipfs/"; // ipfs gateway, there are many other alternatives as well
+	mapping(string => bool) usedImagesSet;
+	uint nextTokenID;
 
 	modifier ownerOnly {
 		require(owner == msg.sender, "owner only");
 		_;
 	}
-	constructor(string memory __baseURI) ERC721("DefiSocialMediaNFT", "DSM") {
-	 	baseURI = __baseURI;
+	constructor() ERC721("DefiSocialMediaNFT", "DSM") {
 		owner = msg.sender;
-	}
-
-	function setBaseURI(string memory __baseURI) ownerOnly public {
-		baseURI = __baseURI;
+		nextTokenID = 0;
 	}
 
 	 function _baseURI() internal view virtual override returns (string memory) {
-        return baseURI;
+        return BASE_URI;
     }
 
-	function mint(address to, uint tokenID) ownerOnly external {
+	function mint(address to, string memory ipfsCID) ownerOnly external returns (uint) {
+		require(!usedImagesSet[ipfsCID], "this image has already been minted to some nft");
+		usedImagesSet[ipfsCID] = true;
+
+		uint tokenID = nextTokenID;
 		_safeMint(to, tokenID);
+		_setTokenURI(tokenID, ipfsCID);
+		nextTokenID++;
+
+		return tokenID;
 	}
 }

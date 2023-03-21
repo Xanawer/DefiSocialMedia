@@ -3,6 +3,7 @@ pragma solidity ^0.8.0;
 import "./MediaNFT.sol";
 
 contract Post {
+	// === POST DATA STRUCTURES ===
 	struct Comment {
 		uint256 id;
 		address owner;
@@ -31,8 +32,22 @@ contract Post {
 	mapping(uint256 => mapping(address => bool)) hasLiked; 
 	// mapping for users to his/her post ids
 	mapping(address => uint256[]) userToPosts;
+	// === END OF POST DATA STRUCTURES ===
 
+	// === FEED DATA STRUCTURES ===
+	// latest posts are always at the end of the array
+	uint256[] globalFeed;
+	// keep track of scroll states. default value of 0 indicates the scroll state is not started
+	mapping(address => uint256) scrollStates;
+	uint256 POSTS_PER_SCROLL = 10;
+	// === END OF FEED DATA STRUCTURES ===
 
+	constructor () {
+		nftContract = new MediaNFT();
+		owner = msg.sender;
+	}
+
+	// === POST CRUD OPERATIONS ===
 	modifier postOwnerOnly(uint256 id) {
 		require(msg.sender == idToPost[id].owner, "only owner of post can do this action");
 		_;
@@ -43,11 +58,6 @@ contract Post {
 		require (id >= 0 && id < nextPostID, "invalid post id");
 		require(!idToPost[id].deleted, "post has been deleted");
 		_;
-	}
-
-	constructor () {
-		nftContract = new MediaNFT();
-		owner = msg.sender;
 	}
 
 	function incrViewCount(uint256 id) private {
@@ -68,8 +78,7 @@ contract Post {
 		return post;
 	}
 
-	function getAllPostsByUser(address user) public returns (PostData[] memory) {
-		uint256[] storage postIds = userToPosts[user];
+	function getPosts(uint256[] memory postIds) public returns (PostData[] memory) {
 		uint256 notDeletedCount = 0;
 		// get number of non deleted posts 
 		// this is because we cannot allocate a dynamically sized memory array in solidity 
@@ -80,7 +89,6 @@ contract Post {
 			}
 		}
 
-		
 		PostData[] memory posts = new PostData[](notDeletedCount);
 		uint idx = 0;
 		for (uint i = 0; i < postIds.length; i++) {
@@ -92,6 +100,11 @@ contract Post {
 		}
 
 		return posts;
+	}
+
+	function getAllPostsByUser(address user) public returns (PostData[] memory) {
+		uint256[] storage postIds = userToPosts[user];
+		return getPosts(postIds);
 	}
 
 	// returns id of post created
@@ -116,6 +129,7 @@ contract Post {
 		
 		nextPostID++;
 		userToPosts[msg.sender].push(post.id);
+		addToFeed(post.id);
 		
 		return post.id;
 	}
@@ -170,5 +184,47 @@ contract Post {
 		}
 		delete userToPosts[user];
 	}
+	// === POST CRUD OPERATIONS ===
+
+	// === FEED OPERATIONS ===
+	function addToFeed(uint256 postId) private {
+		globalFeed.push(postId);
+	}
+
+	function startScroll() public returns (PostData[] memory) {
+		return scrollPosts(globalFeed.length - 1);
+	}
+
+	function continueScroll() public returns (PostData[] memory) {
+		return scrollPosts(scrollStates[msg.sender]);
+	}
+
+	// return the next 10 (non-deleted) posts starting from startIdx.
+	// note that we count from the end of array to start of array,
+	// as the latest posts are the end of the array.
+	function scrollPosts(uint startIdx) private returns (PostData[] memory) {
+		require(startIdx >= 0 && globalFeed.length > 0, "no more posts to scroll");
+		if (startIdx + 1 <= POSTS_PER_SCROLL) {
+			return getPosts(globalFeed);
+		}
+
+		uint numPosts = 0;
+		uint idx = startIdx;
+		PostData[] memory posts = new PostData[](POSTS_PER_SCROLL);
+		while (numPosts < POSTS_PER_SCROLL && idx >= 0) {
+			uint postId = globalFeed[idx];
+			if (!idToPost[postId].deleted) {
+				posts[numPosts] = getPost(postId);
+				numPosts++;
+			} 
+			idx--;
+		}
+
+		// next scroll, we start searching from this index
+		scrollStates[msg.sender] = idx; 
+
+		return posts;
+	}
+	// === END OF FEED OPERATIONS ===
 }
 

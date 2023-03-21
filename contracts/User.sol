@@ -1,7 +1,8 @@
 pragma solidity ^0.8.0;
 
+import "./Post.sol";
+
 contract User {
-    
     // Struct to store user data
     struct UserData {
         string name;
@@ -9,8 +10,13 @@ contract User {
         uint age;
     }
     
+    Post postContract;
     // Mapping to store user data by address
     mapping(address => UserData) private users;
+
+    constructor(Post _postContract) {
+        postContract = _postContract;
+    }
     
     // Function to create a new user
     function createUser(string memory _name, string memory _email, uint _age) public {
@@ -35,6 +41,7 @@ contract User {
     
     // Function to delete user data
     function deleteUser() public {
+        postContract.deleteAllUserPosts(msg.sender);
         delete users[msg.sender];
     }
 

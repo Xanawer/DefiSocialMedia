@@ -27,8 +27,10 @@ contract Post {
 	MediaNFT nftContract;
 	uint256 nextPostID = 0;
 	mapping(uint256 => PostData) idToPost;
-	// ensures that for each post, there are no duplicate likes for this account (i.e an account cannot like a post twice)
+	// keep track of who liked each post to ensure that there are no duplicate likes for this post (i.e an account cannot like a post twice)
 	mapping(uint256 => mapping(address => bool)) hasLiked; 
+	// mapping for users to his/her post ids
+	mapping(address => uint256[]) userToPosts;
 
 
 	modifier postOwnerOnly(uint256 id) {
@@ -66,6 +68,32 @@ contract Post {
 		return post;
 	}
 
+	function getAllPostsByUser(address user) public returns (PostData[] memory) {
+		uint256[] storage postIds = userToPosts[user];
+		uint256 notDeletedCount = 0;
+		// get number of non deleted posts 
+		// this is because we cannot allocate a dynamically sized memory array in solidity 
+		for (uint i = 0; i < postIds.length; i++) {
+			uint postId = postIds[i];
+			if (!idToPost[postId].deleted) {
+				notDeletedCount++;
+			}
+		}
+
+		
+		PostData[] memory posts = new PostData[](notDeletedCount);
+		uint idx = 0;
+		for (uint i = 0; i < postIds.length; i++) {
+			uint postId = postIds[i];
+			if (!idToPost[postId].deleted) {
+				posts[idx] = getPost(postId);
+				idx++;
+			}
+		}
+
+		return posts;
+	}
+
 	// returns id of post created
 	function createPost(string memory caption, string memory ipfsCID) public returns (uint) {
 		// default value of -1 indicates this post does not have any media attached to it
@@ -87,6 +115,8 @@ contract Post {
 		post.deleted = false; 
 		
 		nextPostID++;
+		userToPosts[msg.sender].push(post.id);
+		
 		return post.id;
 	}
 
@@ -121,7 +151,6 @@ contract Post {
 		idToPost[id].deleted = true;
 	}
 
-
 	function getTokenURIByTokenID(uint id) public view returns (string memory) {
 		return nftContract.tokenURI(id);
 	}
@@ -130,6 +159,16 @@ contract Post {
 		int tokenId = idToPost[id].mediaNFTID;
 		require(tokenId >= 0, "this post does not have media");
 		return getTokenURIByTokenID(uint(tokenId));
+	}
+
+	function deleteAllUserPosts(address user) public {
+		require (tx.origin == user, "only the specified user can initiate this action");
+		uint256[] storage posts = userToPosts[user];
+		for (uint i = 0; i < posts.length; i++) {
+			uint256 postId = posts[i];
+			delete idToPost[postId];
+		}
+		delete userToPosts[user];
 	}
 }
 

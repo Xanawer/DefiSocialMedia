@@ -7,9 +7,10 @@ contract AdsMarket {
 	address owner;
 	Post postContract;
 	Token tokenContract;
-	uint256 ADVERTISING_COST_PER_DAY = 1; // in tokens
+	uint256 ADVERTISING_COST_PER_DAY = 1000; // in tokens
 	uint256 nextPayout; // time of next payout
 	uint256 DISTRIBUTE_PERCENTAGE = 90; // percentage of the total ad revenue generated to distribute back to creators
+	uint256 commissionEarned = 0;
 
 	constructor(Post _postContract, Token _tokenContract) {
 		owner = msg.sender;

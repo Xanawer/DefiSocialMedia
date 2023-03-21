@@ -3,6 +3,7 @@ pragma solidity ^0.8.0;
 import "./MediaNFT.sol";
 import './Token.sol';
 import "./RNG.sol";
+import "./ContentModeration.sol";
 
 contract Post {
 	// === POST DATA STRUCTURES ===
@@ -24,6 +25,8 @@ contract Post {
 		uint256 viewCount;
 		int mediaNFTID; // value of -1 dictates no media
 		bool deleted;
+		bool flagged;
+		uint256 reportCount;
 	}
 
 	address owner;
@@ -43,6 +46,10 @@ contract Post {
 	// keep track of who viewed each post to ensure that there are no duplicate views for this post (i.e an account can only increase the viewcount for a post at most once)
 	// it is a mapping of postID => user address => boolean value (true if user has viewed this post)
 	mapping(uint256 => mapping(address => bool)) hasViewed;
+	uint256 MAX_REPORT_COUNT = 100;
+	// keep track of who reported each post to ensure that there are no duplicate reports for this post (i.e an account can only increase the reportCount for a post at most once)
+	// it is a mapping of postID => user address => boolean value (true if user has reported this post)
+	mapping(uint256 => mapping(address => bool)) hasReported;
 	// === END OF POST DATA STRUCTURES ===
 
 	// === FEED DATA STRUCTURES ===
@@ -74,9 +81,13 @@ contract Post {
 	address adContractAddr;
 	// === END OF ADVERTISEMENT DATA STRUCTURES ===
 
-	constructor (RNG _rngContract) {
-		nftContract = new MediaNFT();
-		tokenContract = new Token();
+	// === CONTENT MODERATION DATA STRUCTURES ===
+	ContentModeration contentModerationContract;
+	// === END OF CONTENT MODERATION DATA STRUCTURES ===
+	
+	constructor (RNG _rngContract, MediaNFT _nftContract, Token _tokenContract) {
+		nftContract = _nftContract;
+		tokenContract = _tokenContract;
 		rngContract = _rngContract;
 		owner = msg.sender;
 	}
@@ -92,11 +103,25 @@ contract Post {
 		_;
 	}
 
-	// a valid post is defined as a non-deleted post with a valid id
-	modifier validPost(uint256 id) { 
+	// a valid post is defined as a non-deleted & non-flagged post with a valid id
+	modifier validId(uint256 id) { 
 		require (id >= 0 && id < nextPostID, "invalid post id");
+		_;
+	}
+
+	modifier notDeleted(uint256 id) {
 		require(!idToPost[id].deleted, "post has been deleted");
 		_;
+	}
+
+	modifier notFlagged(uint256 id) {
+		require(!idToPost[id].flagged, "post has been flagged");
+		_;
+	}
+
+	function canShowPost(uint256 id) private view validId(id) returns (bool) {
+		PostData storage post = idToPost[id];
+		return !post.deleted && !post.flagged;
 	}
 
 	// increments the view count for this post. 
@@ -122,31 +147,44 @@ contract Post {
 	}
 
 	// get post by post id. filters out deleted comments
-	function getPost(uint256 id) public validPost(id) returns (PostData memory)  {
+	function getPost(uint256 id) public validId(id) notDeleted(id) notFlagged(id) returns (PostData memory)  {
 		incrViewCount(id);
 		PostData memory post = idToPost[id];
+
 		// filter out deleted comments
+		// we need to first find number of non deleted comments because we cannot allocate a dynamically sized memory array in soldiity
+		uint256 numNonDeletedComments = 0;
 		Comment[] memory comments = post.comments;
 		for (uint256 i = 0; i < comments.length; i++) {
-			if (comments[i].deleted) {
-				delete comments[i];
-				comments[i].deleted = true;
-			}
+			if (!comments[i].deleted) {
+				numNonDeletedComments++;
+			} 
 		}
+
+		Comment[] memory filteredComments = new Comment[](numNonDeletedComments);
+		uint idx = 0;
+		for (uint256 i = 0; i < comments.length; i++) {
+			if (!comments[i].deleted) {
+				filteredComments[idx] = comments[i];
+				idx++;
+			} 
+		}
+		post.comments = filteredComments;
+
 		return post;
 	}
 
-	// get multiple posts by multiple postids. filters out deleted posts and comments.
+	// get multiple posts by multiple postids. filters out deleted & flagged posts and comments.
 	function getPosts(uint256[] memory postIds) private returns (PostData[] memory) {
 		// note that the length of the `posts` array is just an esimate of the true number of non-deleted posts
 		// we need to give an estimated length because we cannot allocate a dynamically sized memory array in solidity (i.e an array without a specified length).
 		PostData[] memory posts = new PostData[](postIds.length);
-		// number of non-deleted posts
+		// number of valid posts
 		uint n = 0; 
-		// find all non-deleted posts
+		// find all valid posts
 		for (uint i = 0; i < postIds.length; i++) {
 			uint postId = postIds[i];
-			if (!idToPost[postId].deleted) {
+			if (canShowPost(postId)) {
 				posts[n] = getPost(postId);
 				n++;
 			}
@@ -162,7 +200,7 @@ contract Post {
 		return postsResult;
 	}
 
-	// returns all non-deleted posts associated with this user (i.e post.owner == user)
+	// returns all valid posts associated with this user (i.e post.owner == user)
 	function getAllPostsByUser(address user) public returns (PostData[] memory) {
 		uint256[] storage postIds = userToPosts[user];
 		return getPosts(postIds);
@@ -202,7 +240,7 @@ contract Post {
 	}
 
 	// like the post specified by `id`. the liker is the `msg.sender`
-	function like(uint256 id) public validPost(id) {
+	function like(uint256 id) public validId(id) notDeleted(id) notFlagged(id) {
 		address liker = msg.sender;
 		require(!hasLiked[id][liker], "you have already liked this post");
 		hasLiked[id][liker] = true;
@@ -210,7 +248,7 @@ contract Post {
 	}
 
 	// unlike the post specified by `id`. the liker is the `msg.sender`
-	function unlike(uint256 id) public validPost(id) {
+	function unlike(uint256 id) public validId(id) notDeleted(id) notFlagged(id)  {
 		address liker = msg.sender;
 		require(hasLiked[id][liker], "you have not liked this post");
 		hasLiked[id][liker] = false;
@@ -219,7 +257,7 @@ contract Post {
 
 	// add a comment with `text` to post with id of `id`. the commentor is `msg.sender`.
 	// returns the id of the comment
-	function addComment(uint256 id, string memory text) public validPost(id) returns (uint) {
+	function addComment(uint256 id, string memory text) public validId(id) notDeleted(id) notFlagged(id) returns (uint) {
 		uint256 commentID = idToPost[id].comments.length;
 		idToPost[id].comments.push(Comment(commentID, msg.sender, block.timestamp, text, false));
 		return commentID;
@@ -227,7 +265,7 @@ contract Post {
 
 	// delete a comment with the specified postID and commentID.
 	// the commentator is `msg.sender`. Only the owner of this comment can delete the comment.
-	function deleteComment(uint256 postID, uint256 commentID) public validPost(postID) {
+	function deleteComment(uint256 postID, uint256 commentID) public validId(postID) notDeleted(postID) notFlagged(postID) {
 		require(commentID >= 0 && commentID < idToPost[postID].comments.length, "invalid comment ID");
 		Comment storage comment = idToPost[postID].comments[commentID];
 		require(!comment.deleted, "comment is already deleted");
@@ -236,8 +274,18 @@ contract Post {
 	}
 
 	// delete the post specified by `id`. Only the owner of the post can delete the post.
-	function deletePost(uint256 id) public postOwnerOnly(id) validPost(id) {
+	function deletePost(uint256 id) public postOwnerOnly(id) validId(id) notDeleted(id) {
 		idToPost[id].deleted = true;
+	}
+
+	// report this post specified by `id`
+	function reportPost(uint256 id) public validId(id) notDeleted(id) notFlagged(id) {
+		require(!hasReported[id][msg.sender], "you have already reported this post");
+		idToPost[id].reportCount++;
+		hasReported[id][msg.sender] = true;
+		if (idToPost[id].reportCount >= MAX_REPORT_COUNT) {
+			idToPost[id].flagged = true;
+		}
 	}
 
 	// get the tokenURI (i.e image link) to the NFT specified by `id`
@@ -245,9 +293,8 @@ contract Post {
 		return nftContract.tokenURI(id);
 	}
 
-
 	// get the tokenURI (i.e image link) to the NFT in the post specified by `id`
-	function getTokenURIByPostID(uint id) public view validPost(id) returns (string memory) {
+	function getTokenURIByPostID(uint id) public view validId(id) notDeleted(id) notFlagged(id) returns (string memory) {
 		int tokenId = idToPost[id].mediaNFTID;
 		require(tokenId >= 0, "this post does not have media");
 		return getTokenURIByTokenID(uint(tokenId));
@@ -273,6 +320,14 @@ contract Post {
 			idToPost[postId].deleted = true;
 		}
 	}
+
+	function getOwner(uint256 id) public view returns (address) {
+		return idToPost[id].owner;
+	}
+
+	function getFlaggedStatus(uint256 id) public view returns (bool) {
+		return idToPost[id].flagged;
+	}
 	// === POST CRUD OPERATIONS ===
 
 	// === FEED OPERATIONS ===
@@ -295,14 +350,10 @@ contract Post {
 		return scrollPosts(scrollStates[msg.sender]);
 	}
 
-	// return the next 10 (non-deleted) posts starting from startIdx.
+	// return the next 10 (non-deleted && non-flagged) posts starting from startIdx.
 	// note that we count from the end of array to start of array, as the latest posts are the end of the array.
 	function scrollPosts(uint startIdx) private returns (PostData[] memory) {
-		if (startIdx < 0 || globalFeed.length == 0) {
-			// there are no more posts to scroll/view
-			delete scrollStates[msg.sender];
-			require(false, "no more posts to scroll");
-		}
+		require(startIdx >= 0 && globalFeed.length > 0 , "no more posts to scroll");
 
 		uint numPosts = 0;
 		uint idx = startIdx;
@@ -323,14 +374,14 @@ contract Post {
 			}
 
 			uint postId = globalFeed[idx];
-			if (!idToPost[postId].deleted) {
+			if (canShowPost(postId)) {
 				posts[numPosts] = getPost(postId);
 				numPosts++;
 			} 
 			idx--;
 		}
 
-		// next scroll, we start searching from this index
+		// for next scroll, we start searching from this index
 		scrollStates[msg.sender] = idx; 
 
 		return posts;
@@ -383,15 +434,15 @@ contract Post {
 		while (ads.length > 0) {
 			uint n = ads.length;	
 			uint randIdx = rngContract.random() % n;
-			// check if this ad is expired
-			if (ads[randIdx].endTime < block.timestamp) {
-				// delete this expired ad by..
+			// check if this ad is expired or is somehow flagged/deleted
+			if (ads[randIdx].endTime < block.timestamp || !canShowPost(ads[randIdx].postData.id)) {
+				// delete this invalid ad by..
  				// firstly, replace this expired ad with the ad at the last idx
 				ads[randIdx] = ads[n - 1];
 				// secondly, delete the last idx
 				ads.pop(); 
 			} else {
-				// this ad is not expired, return this ad!
+				// this ad is valid, return this ad!
 				return (ads[randIdx], true);
 			}
 		}
@@ -457,5 +508,50 @@ contract Post {
 		delete postsViewedThisMonth;
 	}
 	// === END OF ADVERTISMENT OPERATIONS ===
+
+	// === CONTENT MODERATION OPERATIONS === 
+	modifier ContentModerationContractOnly {
+		require(msg.sender == address(contentModerationContract), "only content moderation contract can execute this function");
+		_;
+	}
+
+	function setContentModerationContract(ContentModeration _contentModerationContract) public contractOwnerOnly {
+		contentModerationContract = _contentModerationContract;
+	}
+
+	function resetFlagAndReportCount(uint postId) public ContentModerationContractOnly {
+		idToPost[postId].flagged = false;
+		idToPost[postId].reportCount = 0;
+	}
+
+	// users can call this function to get a flagged post which has a dispute open.
+	// they can only view the post corresponding to the dispute they are voting for.
+	function getPostToReviewDispute(uint id) public view validId(id) notDeleted(id) returns (PostData memory) {
+		require(contentModerationContract.getCurrentDisputeOfUser(msg.sender) == id, "you are not voting for the specified dispute id");
+		PostData memory post = idToPost[id];
+
+		// filter out deleted comments
+		// we need to first find number of non deleted comments because we cannot allocate a dynamically sized memory array in soldiity
+		uint256 numNonDeletedComments = 0;
+		Comment[] memory comments = post.comments;
+		for (uint256 i = 0; i < comments.length; i++) {
+			if (!comments[i].deleted) {
+				numNonDeletedComments++;
+			} 
+		}
+
+		Comment[] memory filteredComments = new Comment[](numNonDeletedComments);
+		uint idx = 0;
+		for (uint256 i = 0; i < comments.length; i++) {
+			if (!comments[i].deleted) {
+				filteredComments[idx] = comments[i];
+				idx++;
+			} 
+		}
+		post.comments = filteredComments;
+
+		return post;
+	}
+	// === END OF CONTENT MODERATION OPERATIONS === 
 }
 

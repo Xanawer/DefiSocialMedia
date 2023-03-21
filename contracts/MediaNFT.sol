@@ -13,8 +13,8 @@ contract MediaNFT is ERC721URIStorage {
 		require(owner == msg.sender, "owner only");
 		_;
 	}
-	
-	constructor() ERC721("DefiSocialMediaNFT", "DSM") {
+
+	constructor() ERC721("DefiSocialMediaNFT", "DSMNFT") {
 		owner = msg.sender;
 		nextTokenID = 0;
 	}

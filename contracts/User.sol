@@ -8,6 +8,7 @@ contract User {
         string name;
         string email;
         uint age;
+        bool deleted;
     }
     
     Post postContract;
@@ -17,21 +18,26 @@ contract User {
     constructor(Post _postContract) {
         postContract = _postContract;
     }
+
+    modifier notDeleted(address user) {
+        require(!users[user].deleted, "user has been deleted");
+        _;
+    }
     
     // Function to create a new user
     function createUser(string memory _name, string memory _email, uint _age) public {
-        UserData memory newUser = UserData(_name, _email, _age);
+        UserData memory newUser = UserData(_name, _email, _age, false);
         users[msg.sender] = newUser;
     }
     
     // Function to retrieve user data by address
-    function getUser() public view returns(string memory, string memory, uint) {
-        UserData memory currentUser = users[msg.sender];
+    function getUser(address user) public view notDeleted(user) returns(string memory, string memory, uint) {
+        UserData memory currentUser = users[user];
         return (currentUser.name, currentUser.email, currentUser.age);
     }
     
     // Function to update user data
-    function updateUser(string memory _name, string memory _email, uint _age) public {
+    function updateUser(string memory _name, string memory _email, uint _age) public notDeleted(msg.sender) {
         UserData memory currentUser = users[msg.sender];
         currentUser.name = _name;
         currentUser.email = _email;
@@ -40,9 +46,9 @@ contract User {
     }
     
     // Function to delete user data
-    function deleteUser() public {
+    function deleteUser() public notDeleted(msg.sender) {
         postContract.deleteAllUserPosts(msg.sender);
-        delete users[msg.sender];
+        users[msg.sender].deleted = true;
     }
 
 }

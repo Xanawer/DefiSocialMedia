@@ -3,16 +3,17 @@ pragma solidity ^0.8.0;
 import '@openzeppelin/contracts/token/ERC20/ERC20.sol';
 
 contract Token is ERC20 {
-	address owner;
-	uint256 BUYBACK_PRICE = 0.0009 ether; // buy back at 1 token for 0.0009 eth
-	uint256 SELL_PRICE = 0.001 ether; // sell users 1 token for 0.001 eth
+	// owner of this token contract
+	address owner; 
+	// buy back at 1 token for 0.0009 eth from users
+	uint256 BUYBACK_PRICE = 0.0009 ether; 
+	// sell users 1 token for 0.001 eth
+	uint256 SELL_PRICE = 0.001 ether; 
 
 	constructor() ERC20("DSM Token", "DSMToken") {
 		owner = msg.sender;
 	}
 
-	// in reality, tokens should be traded and get from AMM/DEX.
-	// this is just a proof of concept so we use this function to get tokens easily.
 	function getTokens() public payable {
 		uint amt = msg.value / SELL_PRICE;
 		_mint(msg.sender, amt);

@@ -45,13 +45,15 @@ contract Post {
 	// keep track of who liked each post to ensure that there are no duplicate likes for this post (i.e an account cannot like a post twice)
 	// it is a mapping of postID => user address => boolean value (true if user has liked this post)
 	mapping(uint256 => mapping(address => bool)) hasLiked; 
-	// keep track of who viewed each post to ensure that there are no duplicate views for this post (i.e an account can only increase the viewcount for a post at most once)
-	// it is a mapping of postID => user address => boolean value (true if user has viewed this post)
-	mapping(uint256 => mapping(address => bool)) hasViewed;
-	uint256 MAX_REPORT_COUNT = 100;
+	// keep track of who viewed each post at what time to reduce the chance of bot views  (an account can only increase the viewcount for a post at most once per day)
+	// it is a mapping of postID => user address => last viewed time
+	mapping(uint256 => mapping(address => uint256)) lastViewed;
+	// the duration of which a view count will not be double counted
+	uint256 VIEWCOUNT_COOLDOWN = 1 days;
 	// keep track of who reported each post to ensure that there are no duplicate reports for this post (i.e an account can only increase the reportCount for a post at most once)
 	// it is a mapping of postID => user address => boolean value (true if user has reported this post)
 	mapping(uint256 => mapping(address => bool)) hasReported;
+	uint256 MAX_REPORT_COUNT = 100;
 	// === END OF POST DATA STRUCTURES ===
 
 	// === ADVERTISEMENT DATA STRUCTURES ===
@@ -113,7 +115,7 @@ contract Post {
 	}
 
 	modifier userExists(address user) {
-		require(userContract.exists(user), "user does not exist");
+		require(userContract.existsAndNotDeleted(user), "user does not exist");
 		_;
 	}
 
@@ -128,14 +130,15 @@ contract Post {
 	}
 
 	// increments the view count for this post. 
-	// we do not count duplicate views (i.e even if a user views a post multiple times, we count it as he only viewed it at most one time)
+	// we do not count duplicate views within a day (i.e even if a user views a post multiple times in 1 day, we count it as he only viewed it at most one time)
 	// this reduces the chances of manipulation of viewcounts to gain ad revenue.
 	// there are two view counts to maintain
 	// 1. overall view count
 	// 2. viewcount for this month, to calculate the ad revenue distribution for this monthly period
 	function incrViewCount(uint256 id) private {
 		// prevent duplicate counting of viewcount
-		if (hasViewed[id][tx.origin]) {
+		if (block.timestamp - lastViewed[id][tx.origin] < VIEWCOUNT_COOLDOWN) {
+			// if the time between now and last viewed is less than 1 day, we do not double count.
 			return;
 		}
 
@@ -147,7 +150,7 @@ contract Post {
 		address creator = idToPost[id].owner;
 		// idx of this creator in the `payeesThisMonth` array
 		uint idx = creatorToIdx[creator];
-		// check if we are already checking this creator (i.e the creator at `payeesThisMonth[idx]` is really the creator)
+		// check if we are already tracking this creator (i.e the creator at `payeesThisMonth[idx]` is really the creator)
 		bool creatorAlreadyTracked = idx < payeesThisMonth.length && payeesThisMonth[idx] == creator;
 		if (!creatorAlreadyTracked) {
 			// this creator has not been tracked this month, add it to the end of the array and track the index of where it was stored
@@ -160,7 +163,7 @@ contract Post {
 		viewCountThisMonth[idx]++;
 		totalViewCountThisMonth;
 
-		hasViewed[id][tx.origin] = true;
+		lastViewed[id][tx.origin] = block.timestamp;
 	}
 
 	// get post by post id. filters out deleted comments

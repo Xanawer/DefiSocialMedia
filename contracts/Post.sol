@@ -14,7 +14,6 @@ contract Post {
 		address owner;
 		uint256 timestamp;
 		string text;
-		bool deleted;
 	}
 
 	struct PostData {
@@ -63,11 +62,14 @@ contract Post {
 	}
 	// list of all of the current advertisements
 	Ad[] ads;
-	// keep track of view counts for current month.
-	// this helps us to decide how to split the ad revenue amongst creators for this month.
-	mapping(uint => uint) viewCountThisMonth;
-	// we need this list to iterate through the keys in the above mapping in solidity. (cant iterate mapping in solidity)
-	uint[] postsViewedThisMonth;
+	// creators to pay out ad revneue for this month
+	address[] payeesThisMonth;
+	// viewCountThisMonth[i] correspond to the viewcount for creator in payeesThisMonth[i]
+	uint[] viewCountThisMonth;
+	// track the index where creator is stored in the `payeesThisMonth` array
+	mapping(address => uint) creatorToIdx;
+	// overall total view count for this month
+	uint totalViewCountThisMonth;
 	address adContractAddr;
 	// === END OF ADVERTISEMENT DATA STRUCTURES ===
 
@@ -141,11 +143,22 @@ contract Post {
 		idToPost[id].viewCount++;
 
 		// viewcount for this month
-		if (viewCountThisMonth[id] == 0) {
-			// first time anyone has viewed this post this month
-			postsViewedThisMonth.push(id);
+		// creator of this post
+		address creator = idToPost[id].owner;
+		// idx of this creator in the `payeesThisMonth` array
+		uint idx = creatorToIdx[creator];
+		// check if we are already checking this creator (i.e the creator at `payeesThisMonth[idx]` is really the creator)
+		bool creatorAlreadyTracked = idx < payeesThisMonth.length && payeesThisMonth[idx] == creator;
+		if (!creatorAlreadyTracked) {
+			// this creator has not been tracked this month, add it to the end of the array and track the index of where it was stored
+			idx = payeesThisMonth.length;
+			creatorToIdx[creator] = idx;
+			payeesThisMonth.push(creator);
+			viewCountThisMonth.push(0);
 		}
-		viewCountThisMonth[id] += 1;
+		// increment viewcounts for this month
+		viewCountThisMonth[idx]++;
+		totalViewCountThisMonth;
 
 		hasViewed[id][tx.origin] = true;
 	}
@@ -155,27 +168,6 @@ contract Post {
 		PostData memory post = idToPost[id];
 		require(canViewCreatorPosts(post.owner, tx.origin), "the user is private, and you are not in the following list");
 		incrViewCount(id);
-
-		// filter out deleted comments
-		// we need to first find number of non deleted comments because we cannot allocate a dynamically sized memory array in soldiity
-		uint256 numNonDeletedComments = 0;
-		Comment[] memory comments = post.comments;
-		for (uint256 i = 0; i < comments.length; i++) {
-			if (!comments[i].deleted) {
-				numNonDeletedComments++;
-			} 
-		}
-
-		Comment[] memory filteredComments = new Comment[](numNonDeletedComments);
-		uint idx = 0;
-		for (uint256 i = 0; i < comments.length; i++) {
-			if (!comments[i].deleted) {
-				filteredComments[idx] = comments[i];
-				idx++;
-			} 
-		}
-		post.comments = filteredComments;
-
 		return post;
 	}
 
@@ -268,7 +260,7 @@ contract Post {
 	function addComment(uint256 id, string memory text) public validId(id) notDeleted(id) notFlagged(id) userExists(msg.sender) returns (uint) {
 		require(canViewCreatorPosts(idToPost[id].owner, tx.origin), "the user is private, and you are not in the following list");
 		uint256 commentID = idToPost[id].comments.length;
-		idToPost[id].comments.push(Comment(commentID, msg.sender, block.timestamp, text, false));
+		idToPost[id].comments.push(Comment(commentID, msg.sender, block.timestamp, text));
 		return commentID;
 	}
 
@@ -277,10 +269,17 @@ contract Post {
 	function deleteComment(uint256 postID, uint256 commentID) public validId(postID) notDeleted(postID) notFlagged(postID) {
 		require(canViewCreatorPosts(idToPost[postID].owner, tx.origin), "the user is private, and you are not in the following list");		
 		require(commentID >= 0 && commentID < idToPost[postID].comments.length, "invalid comment ID");
-		Comment storage comment = idToPost[postID].comments[commentID];
-		require(!comment.deleted, "comment is already deleted");
-		require(comment.owner == msg.sender, "only owner of this comment can delete this comment");
-		comment.deleted = true;
+		Comment[] storage comments = idToPost[postID].comments;
+		for (uint i = 0; i < comments.length; i++) {
+			if (comments[i].id == commentID) {
+				require(comments[i].owner == msg.sender, "only owner of this comment can delete this comment");
+				// delete this comment
+				comments[i] = comments[comments.length - 1];
+				comments.pop();
+				return;
+			}
+		}
+		require(false, "cannot find comment");
 	}
 
 	// delete the post specified by `id`. Only the owner of the post can delete the post.
@@ -405,60 +404,18 @@ contract Post {
 	}
 
 	// calculates the distribution of ad revenue to creators for the current month according to viewcount
-	// returns the following: (creators, viewCount, totalViewCount) where
+	// returns the following: (creators, viewCount, totalViewCountThisMonth) where
 	// 1. payee[i] is the creator who will receive ad payouts
 	// 2. viewCount[i] is the number of views payee[i] got in this month.
 	function getAdRevenueDistribution() public view AdContractOnly returns (address[] memory, uint[] memory, uint) {
-		uint numCreators = 0;
-		uint totalViewCount = 0;
-		 // note we are just estimating the number of creators here through postsViewedThisMonth.length
-		address[] memory creators = new address[](postsViewedThisMonth.length);
-		uint[] memory viewCounts = new uint[](postsViewedThisMonth.length);
-
-		// we are doing four things in this loop.
-		// 1. we are finding an index j to put a creator in the `creators` array. the `creators` array does not have duplicate elements.
-		// 2. we are finding the number of distinct creators to get ads revenue payout this month. (numCreators)
-		// 3. we are finding the total number of viewcounta for each creator.
-		// 4. we are counting the total number of viewcounts for this month.
-		for (uint i = 0; i < postsViewedThisMonth.length; i++) {
-			uint postId = postsViewedThisMonth[i];
-			PostData storage post = idToPost[postId];
-			address creator = post.owner;
-
-			// find an index j for this `creator` (iterate through the array until we find an empty slot to insert (i.e address(0)) or a duplicate entry of 'creator')
-			uint j = 0;
-			while (creators[j] != address(0) && creators[j] != creator) j++;
-			if (creators[j] != creator) {
-				// if we have not inserted this creator, insert it.
-				creators[j] = creator;
-				numCreators++;
-			}
-
-			totalViewCount += post.viewCount;
-			viewCounts[j] += post.viewCount;
-		}
-
-		// copy over the exact number of creators & viewcounts (previously, we were using an estimated number of creators to create the arrays)
-		address[] memory payeesResult = new address[](numCreators);
-		uint[] memory viewCountsResult = new uint[](numCreators);
-		for (uint i = 0; i < numCreators; i++) {
-			payeesResult[i] = creators[i];
-			viewCountsResult[i] = viewCounts[i];
-		}
-
-		return (payeesResult, viewCountsResult, totalViewCount);
+		return (payeesThisMonth, viewCountThisMonth, totalViewCountThisMonth);
 	}
 
 	// resets the monthly tracker for view counts
 	function resetMonthlyViewCounts() public AdContractOnly {
-		// delete mapping
-		for (uint i = 0; i < postsViewedThisMonth.length; i++) {
-			uint postId = postsViewedThisMonth[i];
-			delete viewCountThisMonth[postId];
-		}
-		
-		// reset array
-		delete postsViewedThisMonth;
+		delete payeesThisMonth;
+		delete viewCountThisMonth;
+		totalViewCountThisMonth = 0;
 	}
 	// === END OF ADVERTISMENT OPERATIONS ===
 
@@ -482,27 +439,6 @@ contract Post {
 	function getPostToReviewDispute(uint postId, uint disputeId) public view validId(postId) notDeleted(postId) returns (PostData memory) {
 		require(contentModerationContract.getCurrentDisputeIdOfUser(msg.sender) == disputeId, "you are not voting for the specified dispute id");
 		PostData memory post = idToPost[postId];
-
-		// filter out deleted comments
-		// we need to first find number of non deleted comments because we cannot allocate a dynamically sized memory array in soldiity
-		uint256 numNonDeletedComments = 0;
-		Comment[] memory comments = post.comments;
-		for (uint256 i = 0; i < comments.length; i++) {
-			if (!comments[i].deleted) {
-				numNonDeletedComments++;
-			} 
-		}
-
-		Comment[] memory filteredComments = new Comment[](numNonDeletedComments);
-		uint idx = 0;
-		for (uint256 i = 0; i < comments.length; i++) {
-			if (!comments[i].deleted) {
-				filteredComments[idx] = comments[i];
-				idx++;
-			} 
-		}
-		post.comments = filteredComments;
-
 		return post;
 	}
 	// === END OF CONTENT MODERATION OPERATIONS === 

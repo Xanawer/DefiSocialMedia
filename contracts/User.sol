@@ -11,13 +11,16 @@ contract User {
         uint age;
         bool deleted;
         bool isPrivateAccount;
-        address[] followers;
-        address[] followRequests;
+        uint followCount;
     }
     
     Post postContract;
     // Mapping to store user data by address
     mapping(address => UserData) private users;
+    // mapping of creator => follower => bool (true if follower is following creator)
+    mapping(address => mapping(address => bool)) isFollowing;
+    // mapping of creator => requester => bool (true if requester is requeswting to follow creator)
+    mapping(address => mapping(address => bool)) requestedFollow;
 
     constructor(Post _postContract) {
         postContract = _postContract;
@@ -42,12 +45,7 @@ contract User {
     }
 
     function isFollower(address account, address follower) public view notDeleted(account) userExists(account) notDeleted(follower) userExists(follower) returns (bool) {
-        address[] storage followers = users[account].followers;
-        for (uint i = 0; i < followers.length; i++) {
-            if (followers[i] == follower) return true;
-        }
-
-        return false;
+        return isFollowing[account][follower];
     }
     
     // Function to create a new user
@@ -73,7 +71,7 @@ contract User {
     }
 
     function getFollowerCount(address user) public view notDeleted(user) userExists(user) returns(uint) {
-        return users[user].followers.length;
+        return users[msg.sender].followCount;
     }
 
     function updateName(string memory _name) public notDeleted(msg.sender) userExists(msg.sender) {
@@ -97,47 +95,22 @@ contract User {
     }
 
     function acceptFollower(address requester) public notDeleted(msg.sender) userExists(msg.sender) {
-        address[] storage requests = users[msg.sender].followRequests;
-        bool found = false;
-        for (uint i = 0; i < requests.length; i++) {
-            if (requests[i] == requester) {
-                found = true;
-                // remove the requester from follow request list
-                requests[i] = requests[requests.length - 1];
-                requests.pop();
-                break;
-            }
-        }
-        require(found, "follow request not found");
-        users[msg.sender].followers.push(requester);
+        require(requestedFollow[msg.sender][requester], "follow request not found");
+        delete requestedFollow[msg.sender][requester];
+        isFollowing[msg.sender][requester] = true;
+        users[msg.sender].followCount++;
     }
 
     function removeFollower(address follower) public notDeleted(msg.sender) userExists(msg.sender) {
-        address[] storage followers = users[msg.sender].followers;
-        bool found = false;
-        for (uint i = 0; i < followers.length; i++) {
-            if (followers[i] == follower) {
-                found = true;
-                // remove the follower from follow request list
-                followers[i] = followers[followers.length - 1];
-                followers.pop();
-                break;
-            }
-        }
-        require(found, "follower not found");
+        require(isFollowing[msg.sender][follower], "follower not found");
+        isFollowing[msg.sender][follower] = false;
+        users[msg.sender].followCount--;
     }
 
     function requestFollow(address user) public notDeleted(user) userExists(user) notDeleted(msg.sender) userExists(msg.sender) {
-        address[] storage followers = users[user].followers;
-        address[] storage requesters = users[user].followers;
-        for (uint i = 0; i < followers.length; i++) {
-            require(followers[i] != msg.sender, "you have already followed this person");
-        }
-        for (uint i = 0; i < requesters.length; i++) {
-            require(requesters[i] != msg.sender, "you have already requested to follow this person");
-        }
-
-        requesters.push(msg.sender);
+        require(!isFollowing[user][msg.sender], "you have already followed this person");
+        require(!requestedFollow[user][msg.sender], "you have already requested to follow this person");
+        requestedFollow[user][msg.sender] = true;
     }
     
     // Function to delete user data

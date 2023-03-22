@@ -115,7 +115,12 @@ contract Post {
 		_;
 	}
 
-	function canShowPost(uint256 id) public view validId(id) returns (bool) {
+	// a viewer can view a creator post if the creator account is not private, or it is private and the viewer is a follower
+	function canViewCreatorPosts(address creator, address viewer) public view returns (bool) {
+		return !userContract.isPrivateAccount(creator) || userContract.isFollower(creator, viewer);
+	}
+
+	function notDeletedOrFlagged(uint256 id) public view validId(id) returns (bool) {
 		PostData storage post = idToPost[id];
 		return !post.deleted && !post.flagged;
 	}
@@ -147,8 +152,9 @@ contract Post {
 
 	// get post by post id. filters out deleted comments
 	function getPost(uint256 id) public validId(id) notDeleted(id) notFlagged(id) returns (PostData memory)  {
-		incrViewCount(id);
 		PostData memory post = idToPost[id];
+		require(canViewCreatorPosts(post.owner, tx.origin), "the user is private, and you are not in the following list");
+		incrViewCount(id);
 
 		// filter out deleted comments
 		// we need to first find number of non deleted comments because we cannot allocate a dynamically sized memory array in soldiity
@@ -183,7 +189,7 @@ contract Post {
 		// find all valid posts
 		for (uint i = 0; i < postIds.length; i++) {
 			uint postId = postIds[i];
-			if (canShowPost(postId)) {
+			if (notDeletedOrFlagged(postId) && canViewCreatorPosts(idToPost[postId].owner, tx.origin)) {
 				posts[n] = getPost(postId);
 				n++;
 			}
@@ -201,6 +207,7 @@ contract Post {
 
 	// returns all valid posts associated with this user (i.e post.owner == user)
 	function getAllPostsByUser(address user) public returns (PostData[] memory) {
+		require(canViewCreatorPosts(user, tx.origin), "the user is private, and you are not in the following list");
 		uint256[] storage postIds = userToPosts[user];
 		return getPosts(postIds);
 	}
@@ -240,6 +247,7 @@ contract Post {
 
 	// like the post specified by `id`. the liker is the `msg.sender`
 	function like(uint256 id) public validId(id) notDeleted(id) notFlagged(id) userExists(msg.sender) {
+		require(canViewCreatorPosts(idToPost[id].owner, tx.origin), "the user is private, and you are not in the following list");
 		address liker = msg.sender;
 		require(!hasLiked[id][liker], "you have already liked this post");
 		hasLiked[id][liker] = true;
@@ -248,6 +256,7 @@ contract Post {
 
 	// unlike the post specified by `id`. the liker is the `msg.sender`
 	function unlike(uint256 id) public validId(id) notDeleted(id) notFlagged(id) {
+		require(canViewCreatorPosts(idToPost[id].owner, tx.origin), "the user is private, and you are not in the following list");
 		address liker = msg.sender;
 		require(hasLiked[id][liker], "you have not liked this post");
 		hasLiked[id][liker] = false;
@@ -257,6 +266,7 @@ contract Post {
 	// add a comment with `text` to post with id of `id`. the commentor is `msg.sender`.
 	// returns the id of the comment
 	function addComment(uint256 id, string memory text) public validId(id) notDeleted(id) notFlagged(id) userExists(msg.sender) returns (uint) {
+		require(canViewCreatorPosts(idToPost[id].owner, tx.origin), "the user is private, and you are not in the following list");
 		uint256 commentID = idToPost[id].comments.length;
 		idToPost[id].comments.push(Comment(commentID, msg.sender, block.timestamp, text, false));
 		return commentID;
@@ -265,6 +275,7 @@ contract Post {
 	// delete a comment with the specified postID and commentID.
 	// the commentator is `msg.sender`. Only the owner of this comment can delete the comment.
 	function deleteComment(uint256 postID, uint256 commentID) public validId(postID) notDeleted(postID) notFlagged(postID) {
+		require(canViewCreatorPosts(idToPost[postID].owner, tx.origin), "the user is private, and you are not in the following list");		
 		require(commentID >= 0 && commentID < idToPost[postID].comments.length, "invalid comment ID");
 		Comment storage comment = idToPost[postID].comments[commentID];
 		require(!comment.deleted, "comment is already deleted");
@@ -294,6 +305,7 @@ contract Post {
 
 	// get the tokenURI (i.e image link) to the NFT in the post specified by `id`
 	function getTokenURIByPostID(uint id) public view validId(id) notDeleted(id) notFlagged(id) returns (string memory) {
+		require(canViewCreatorPosts(idToPost[id].owner, tx.origin), "the user is private, and you are not in the following list");		
 		int tokenId = idToPost[id].mediaNFTID;
 		require(tokenId >= 0, "this post does not have media");
 		return getTokenURIByTokenID(uint(tokenId));
@@ -376,7 +388,7 @@ contract Post {
 			uint n = ads.length;	
 			uint randIdx = rngContract.random() % n;
 			// check if this ad is expired or is somehow flagged/deleted
-			if (ads[randIdx].endTime < block.timestamp || !canShowPost(ads[randIdx].postData.id)) {
+			if (ads[randIdx].endTime < block.timestamp || !notDeletedOrFlagged(ads[randIdx].postData.id)) {
 				// delete this invalid ad by..
  				// firstly, replace this expired ad with the ad at the last idx
 				ads[randIdx] = ads[n - 1];

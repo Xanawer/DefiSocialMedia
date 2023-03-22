@@ -36,7 +36,7 @@ contract User {
         _;
     }
 
-    function exists(address addr) public view returns (bool) {
+    function existsAndNotDeleted(address addr) public view returns (bool) {
         return addr == users[addr].addr && !users[addr].deleted;
     }
 

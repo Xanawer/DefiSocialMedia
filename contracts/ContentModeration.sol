@@ -65,7 +65,7 @@ contract ContentModeration {
 	}
 
 	modifier userExists(address user) {
-		require(userContract.exists(user), "user does not exist");
+		require(userContract.existsAndNotDeleted(user), "user does not exist");
 		_;
 	}
 

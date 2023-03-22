@@ -7,6 +7,14 @@ import "./ContentModeration.sol";
 import "./User.sol";
 import "./Feed.sol";
 
+
+event PostCreated(address creator, uint postID, uint256 timePosted);
+event PostLiked(address UserLiked, uint postID);
+event PostUnliked(address UserUnliked, uint postID);
+event Commented(address commentor, uint postID, string comment);
+event PostDeleted(address creator, uint postID, uint256 timeDeleted);
+event CommentDeleted(address commentor, uint postID, uint256 timeDeleted);
+
 contract Post {
 	// === POST DATA STRUCTURES ===
 	struct Comment {
@@ -238,6 +246,7 @@ contract Post {
 		feedContract.addToFeed(post.id);
 		
 		return post.id;
+		emit PostCreated(msg.sender, post.id, block.timestamp);
 	}
 
 	// like the post specified by `id`. the liker is the `msg.sender`
@@ -247,6 +256,7 @@ contract Post {
 		require(!hasLiked[id][liker], "you have already liked this post");
 		hasLiked[id][liker] = true;
 		idToPost[id].likes++;
+		emit PostLiked(msg.sender, id);
 	}
 
 	// unlike the post specified by `id`. the liker is the `msg.sender`
@@ -256,6 +266,7 @@ contract Post {
 		require(hasLiked[id][liker], "you have not liked this post");
 		hasLiked[id][liker] = false;
 		idToPost[id].likes--;
+		emit PostUnliked(msg.sender, id);
 	}
 
 	// add a comment with `text` to post with id of `id`. the commentor is `msg.sender`.
@@ -264,6 +275,7 @@ contract Post {
 		require(canViewCreatorPosts(idToPost[id].owner, tx.origin), "the user is private, and you are not in the following list");
 		uint256 commentID = idToPost[id].comments.length;
 		idToPost[id].comments.push(Comment(commentID, msg.sender, block.timestamp, text));
+		emit commented(msg.sender, id, text);
 		return commentID;
 	}
 
@@ -279,6 +291,7 @@ contract Post {
 				// delete this comment
 				comments[i] = comments[comments.length - 1];
 				comments.pop();
+				emit CommentDeleted(msg.sender, postID, block.timestamp);
 				return;
 			}
 		}
@@ -288,6 +301,7 @@ contract Post {
 	// delete the post specified by `id`. Only the owner of the post can delete the post.
 	function deletePost(uint256 id) public postOwnerOnly(id) validId(id) notDeleted(id) {
 		idToPost[id].deleted = true;
+		emit PostDeleted(msg.owner, id, block.timestamp);
 	}
 
 	// report this post specified by `id`

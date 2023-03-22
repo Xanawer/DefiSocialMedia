@@ -5,10 +5,10 @@ import '@openzeppelin/contracts/token/ERC20/ERC20.sol';
 contract Token is ERC20 {
 	// owner of this token contract
 	address owner; 
-	// buy back at 1 token for 99 gwei from users
-	uint256 BUYBACK_PRICE = 99 gwei; 
-	// sell users 1 token for 100 gwei
-	uint256 SELL_PRICE = 100 gwei; 
+	// sell users 1 token for 1000 gwei (~0.002 USD)
+	uint256 SELL_PRICE = 1000 gwei; 
+	// buy back at 1 token for 90% of sell price
+	uint256 BUYBACK_PRICE = SELL_PRICE * 9/10;
 
 	constructor() ERC20("DSM Token", "DSMToken") {
 		owner = msg.sender;

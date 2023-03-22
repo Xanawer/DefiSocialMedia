@@ -7,14 +7,6 @@ import "./ContentModeration.sol";
 import "./User.sol";
 import "./Feed.sol";
 
-
-event PostCreated(address creator, uint postID, uint256 timePosted);
-event PostLiked(address UserLiked, uint postID);
-event PostUnliked(address UserUnliked, uint postID);
-event Commented(address commentor, uint postID, string comment);
-event PostDeleted(address creator, uint postID, uint256 timeDeleted);
-event CommentDeleted(address commentor, uint postID, uint256 timeDeleted);
-
 contract Post {
 	// === POST DATA STRUCTURES ===
 	struct Comment {
@@ -86,6 +78,14 @@ contract Post {
 	// === CONTENT MODERATION DATA STRUCTURES ===
 	ContentModeration contentModerationContract;
 	// === END OF CONTENT MODERATION DATA STRUCTURES ===
+
+	// === EVENTS ===
+	event PostCreated(address creator, uint postID, uint256 timePosted);
+	event PostLiked(address UserLiked, uint postID);
+	event PostUnliked(address UserUnliked, uint postID);
+	event Commented(address commentor, uint postID, string comment);
+	event PostDeleted(address creator, uint postID, uint256 timeDeleted);
+	event CommentDeleted(address commentor, uint postID, uint256 timeDeleted);
 	
 	constructor (RNG _rngContract, MediaNFT _nftContract, Token _tokenContract) {
 		nftContract = _nftContract;
@@ -245,8 +245,8 @@ contract Post {
 		userToPosts[msg.sender].push(post.id);
 		feedContract.addToFeed(post.id);
 		
-		return post.id;
 		emit PostCreated(msg.sender, post.id, block.timestamp);
+		return post.id;
 	}
 
 	// like the post specified by `id`. the liker is the `msg.sender`
@@ -275,7 +275,7 @@ contract Post {
 		require(canViewCreatorPosts(idToPost[id].owner, tx.origin), "the user is private, and you are not in the following list");
 		uint256 commentID = idToPost[id].comments.length;
 		idToPost[id].comments.push(Comment(commentID, msg.sender, block.timestamp, text));
-		emit commented(msg.sender, id, text);
+		emit Commented(msg.sender, id, text);
 		return commentID;
 	}
 
@@ -301,7 +301,7 @@ contract Post {
 	// delete the post specified by `id`. Only the owner of the post can delete the post.
 	function deletePost(uint256 id) public postOwnerOnly(id) validId(id) notDeleted(id) {
 		idToPost[id].deleted = true;
-		emit PostDeleted(msg.owner, id, block.timestamp);
+		emit PostDeleted(msg.sender, id, block.timestamp);
 	}
 
 	// report this post specified by `id`

@@ -46,6 +46,7 @@ contract ContentModerationStorage is Authorizable {
 		uint activeDisputeCount;
 	}
 
+	Token tokenContract;
 	// list of post ids that have active disputes (currently active disputes)
 	uint256[] activeDisputes;
 	// map of post id to dispute struct
@@ -55,6 +56,12 @@ contract ContentModerationStorage is Authorizable {
 	// the reward pool of this contract comes from the locked tokens of disputes that were rejected
 	uint approveRewardPool = 0;
 	uint rejectRewardPool = 0;	
+	// balance of unlocked tokens that users can withdraw
+	mapping(address => uint) unlockedBalance;
+
+	constructor(Token _tokenContract) {
+		tokenContract = _tokenContract;
+	}
 
 	function init(address cmLogic) public ownerOnly {
 		authorizeContract(cmLogic);
@@ -160,6 +167,26 @@ contract ContentModerationStorage is Authorizable {
 		disputers[creator].postHasDispute[postId] = false;
 		disputers[creator].activeDisputeCount--;
 	}	
+
+	function getBalance(address user) external view isAuthorized returns (uint) {
+		return unlockedBalance[user];
+	}
+
+	function addBalance(address user, uint amt) external isAuthorized {
+		unlockedBalance[user] += amt;
+	}
+
+	function batchAddBalance(address[] memory users, uint amt) external isAuthorized {
+		for (uint i = 0; i < users.length; i++) {
+			address user = users[i];
+			unlockedBalance[user] += amt;
+		}
+	}	
+
+	function withdraw(address user, uint amt) external isAuthorized {
+		unlockedBalance[user] -= amt;
+		tokenContract.transfer(user, amt);
+	}
 
 	// === GETTERS AND SETTERS === 
 	function getVotingStage(address voter) external view isAuthorized returns (VotingStage) {

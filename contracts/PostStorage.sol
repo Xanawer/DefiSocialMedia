@@ -61,8 +61,9 @@ contract PostStorage is Authorizable {
 	// list of all of the current advertisements
 	Ad[] ads;	
 
-	function init(address postLogic) public ownerOnly {
+	function init(address postLogic, address feedContract) public ownerOnly {
 		authorizeContract(postLogic);
+		authorizeContract(feedContract);
 	}
 
 	function createPost(address creator, string memory caption, uint nftID) external isAuthorized returns (uint) {

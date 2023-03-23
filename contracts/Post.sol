@@ -218,7 +218,7 @@ contract Post{
 	// report this post specified by `id`
 	function reportPost(uint256 id) public canAccess(id, msg.sender) validUser(msg.sender) {
 		address reporter = msg.sender;
-		require(storageContract.hasReported(id, reporter),"you have already reported this post");
+		require(!storageContract.hasReported(id, reporter),"you have already reported this post");
 
 		uint reportCount = storageContract.report(id, reporter);
 
@@ -276,7 +276,7 @@ contract Post{
 	}
 
 	// similar to createPost, but in stead of adding to the global feed, we add to the ads array.
-	function createAd(address creator, string memory caption, string memory ipfsCID, uint endTime) public AdContractOnly returns (uint) {
+	function createAd(address creator, string memory caption, string memory ipfsCID, uint endTime) external AdContractOnly returns (uint) {
 		uint nftId = mintNFT(creator, ipfsCID);
 
 		uint id = storageContract.createPost(creator, caption, nftId);
@@ -311,12 +311,12 @@ contract Post{
 		return (adPost, found);
 	}	
 
-	function getAdRevenueDistribution() public view AdContractOnly returns (address[] memory, uint[] memory, uint) {
+	function getAdRevenueDistribution() external view AdContractOnly returns (address[] memory, uint[] memory, uint) {
 		return (storageContract.getMonthlyViewStatistics());
 	}	
 
 	// resets the monthly tracker for view counts
-	function resetMonthlyViewCounts() public AdContractOnly {
+	function resetMonthlyViewCounts() external AdContractOnly {
 		storageContract.resetMonthlyViewStatistics();
 	}
 
@@ -332,7 +332,7 @@ contract Post{
 		contentModerationContract = _contentModerationContract;
 	}
 
-	function resetFlagAndReportCount(uint id) public ContentModerationContractOnly {
+	function resetFlagAndReportCount(uint id) external ContentModerationContractOnly {
 		storageContract.resetReportCount(id);
 		storageContract.setFlagged(id, false);
 	}
@@ -349,4 +349,13 @@ contract Post{
 	function setFeedContract(Feed _feedContract) public contractOwnerOnly {
 		feedContract = _feedContract;
 	}	
+
+	modifier feedContractOnly() {
+		require(address(feedContract) == msg.sender, "feed contract only");
+		_;
+	}
+
+	function feedIncrViewCount(uint id, address viewer) external feedContractOnly {
+		incrViewCount(id, viewer);
+	}
 }

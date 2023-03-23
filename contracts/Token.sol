@@ -7,7 +7,8 @@ import "./Authorizable.sol";
 // 1. users can buy/sell tokens from this contract
 // 2. store the ads revenue balance
 // 3. store the content moderation token balance
-contract Token is ERC20, Authorizable {
+contract Token is ERC20 {
+	address owner;
 	// sell users 1 token for 1000 gwei (~0.002 USD)
 	uint256 SELL_PRICE = 1000 gwei; 
 	// buy back at 1 token for 90% of sell price
@@ -21,11 +22,12 @@ contract Token is ERC20, Authorizable {
 	}
 
 	constructor() ERC20("DSM Token", "DSMToken") {
+		owner = msg.sender;
 	}
 
-	function init(address contentModeration, address ads) public ownerOnly emergencyStop {
-		authorizeContract(contentModeration);
-		authorizeContract(ads);
+	modifier ownerOnly {
+		require(msg.sender == owner, "owner only");
+		_;
 	}
 
 	function getTokens() public payable emergencyStop {
@@ -47,10 +49,6 @@ contract Token is ERC20, Authorizable {
 
 	function setContractStopped(bool stop) public ownerOnly {
 		contractStopped = stop;
-	}
-
-	function transferTo(address addr, uint amt) external isAuthorized emergencyStop {
-		transfer(addr, amt);
 	}
 
 	// stop any transfer if emergency stop is activated

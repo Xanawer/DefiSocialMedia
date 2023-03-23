@@ -55,7 +55,7 @@ contract ContentModeration {
 		require(tokenContract.balanceOf(creator) >= OPEN_DISPUTE_LOCKED_AMT, "you do not have enough balance to open a dispute");
 
 		// get locked tokens from disputer
-		tokenContract.transferFrom(creator, address(tokenContract), OPEN_DISPUTE_LOCKED_AMT);
+		tokenContract.transferFrom(creator, address(storageContract), OPEN_DISPUTE_LOCKED_AMT);
 
 		uint endTime = block.timestamp + MIN_DISPUTE_PERIOD;
 		storageContract.addDispute(creator, postId, reason, OPEN_DISPUTE_LOCKED_AMT, endTime);
@@ -69,11 +69,11 @@ contract ContentModeration {
 		uint n = storageContract.getActiveDisputesCount();
 		require(n > 0, "no active disputes to vote for now");
 		// prevent disputers from voting on their own dispute
-		require(storageContract.hasOpenDispute(voter), "you have an open dispute, therefore you cannot vote until your dispute is closed");
+		require(!storageContract.hasOpenDispute(voter), "you have an open dispute, therefore you cannot vote until your dispute is closed");
 		require(tokenContract.balanceOf(voter) >= VOTE_LOCKED_AMT, "you do not have enough tokens to vote");
 
 		// get locked tokens from voter
-		tokenContract.transferFrom(voter, address(tokenContract), VOTE_LOCKED_AMT);
+		tokenContract.transferFrom(voter, address(storageContract), VOTE_LOCKED_AMT);
 		// get random index from 0..n-1 to pick from the list of activeDisputes
 		uint randIdx = rngContract.random() % n;
 		// get dispute id that is randomly picked
@@ -112,13 +112,10 @@ contract ContentModeration {
 		address[] memory rejectors = storageContract.getRejectors(postId);
 		uint numRejectors = rejectors.length;
 		address[] memory haventVote = storageContract.getHaventVote(postId);
-		uint numHaventVote = haventVote.length;
 		uint numVoters = numApprovers + numRejectors;
 
 		// refund those who havent vote
-		for(uint i = 0; i < numHaventVote; i++) {
-				tokenContract.transferTo(haventVote[i], VOTE_LOCKED_AMT);
-		}
+		storageContract.batchAddBalance(haventVote, VOTE_LOCKED_AMT);
 		
 		// if we do not hit the minimum amount of voters, then we take it as the results of the dispute is not accurate, 
 		// and therefore all parties are refunded their locked tokens. The dispute is deleted, but the post remains flagged.
@@ -126,9 +123,9 @@ contract ContentModeration {
 		if (numVoters <= MIN_VOTE_COUNT || numApprovers == numRejectors) {
 			tie(postId, creator);
 		} else if (numApprovers > numRejectors) {
-			approveWin(postId, creator);
+			approved(postId, creator);
 		} else { // numRejectors > numApprovers
-			rejectWin(postId);	
+			rejected(postId);	
 		}
 
 		// --- clean up ---
@@ -139,26 +136,20 @@ contract ContentModeration {
 		// tie/did not hit min vote count
 		// return all parties their locked tokens
 		address[] memory approvers = storageContract.getApprovers(postId);
-		uint numApprovers = approvers.length;
 		address[] memory rejectors = storageContract.getRejectors(postId);
-		uint numRejectors = rejectors.length;
 
-		for(uint i = 0; i < numApprovers; i++) {
-			tokenContract.transferTo(approvers[i], VOTE_LOCKED_AMT);
-		}
-		for(uint i = 0; i < numRejectors; i++) {
-			tokenContract.transferTo(rejectors[i], VOTE_LOCKED_AMT);
-		}
-		tokenContract.transferTo(creator, OPEN_DISPUTE_LOCKED_AMT);
+		storageContract.batchAddBalance(approvers, VOTE_LOCKED_AMT);
+		storageContract.batchAddBalance(rejectors, VOTE_LOCKED_AMT);
+		storageContract.addBalance(creator, OPEN_DISPUTE_LOCKED_AMT);
 	}
 
-	function approveWin(uint postId, address creator) private {
+	function approved(uint postId, address creator) private {
 		uint n =  storageContract.getActiveDisputesCount();
 		uint voterRewardPool = storageContract.getVoterRewardPool(postId);
 		uint approveRewardPool = storageContract.getApproveRewardPool();
 		uint rejectRewardPool = storageContract.getRejectRewardPool();
 
-			address[] memory approvers = storageContract.getApprovers(postId);
+		address[] memory approvers = storageContract.getApprovers(postId);
 		uint numApprovers = approvers.length;
 		
 		// approve to unflag this post.
@@ -167,21 +158,19 @@ contract ContentModeration {
 		uint rewardPerVoter = totalRewardPool / numApprovers;
 		approveRewardPool -= approveRewardPool / n;
 
-		for(uint i = 0; i < numApprovers; i++) {
-			tokenContract.transferTo(approvers[i], rewardPerVoter);
-		}
+		storageContract.batchAddBalance(approvers, rewardPerVoter);
 
 		// return the creator his locked tokens & unflag his post
-		tokenContract.transferTo(creator, OPEN_DISPUTE_LOCKED_AMT);
+		storageContract.addBalance(creator, OPEN_DISPUTE_LOCKED_AMT);
 		postContract.resetFlagAndReportCount(postId);
 
 		// redistribute rewards to the other pool, to deincentivze users from blindly repeatedly voting this option 
 		(approveRewardPool, rejectRewardPool) = redistribute(approveRewardPool, rejectRewardPool, true);
 		storageContract.setApproveRewardPool(approveRewardPool);
-			storageContract.setRejectRewardPool(rejectRewardPool);
+		storageContract.setRejectRewardPool(rejectRewardPool);
 	}
 
-	function rejectWin(uint postId) private {
+	function rejected(uint postId) private {
 		uint n =  storageContract.getActiveDisputesCount();
 		uint voterRewardPool = storageContract.getVoterRewardPool(postId);
 		uint approveRewardPool = storageContract.getApproveRewardPool();
@@ -197,9 +186,7 @@ contract ContentModeration {
 		uint rewardPerVoter = totalRewardPool / numRejectors;
 		rejectRewardPool -= rejectRewardPool / n;
 
-		for(uint i = 0; i < numRejectors; i++) {
-			tokenContract.transferTo(rejectors[i], rewardPerVoter);
-		}
+		storageContract.batchAddBalance(rejectors, rewardPerVoter);
 
 		// firstly, split the number of penalized tokens evenly between the two pools
 		approveRewardPool += OPEN_DISPUTE_LOCKED_AMT / 2;
@@ -244,4 +231,13 @@ contract ContentModeration {
 		require(storageContract.isDisputed(postId), "this dispute does not exist");
 		return storageContract.getReason(postId);
 	}		
+
+	function getBalance() public view returns (uint) {
+		return storageContract.getBalance(msg.sender);
+	}
+
+	function withdraw(uint amt) public {
+		require(storageContract.getBalance(msg.sender) >= amt, "insufficient balance");
+		storageContract.withdraw(msg.sender, amt);
+	}
 }

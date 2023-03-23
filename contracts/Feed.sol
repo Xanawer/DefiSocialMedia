@@ -2,22 +2,19 @@ pragma solidity ^0.8.0;
 
 import "./Post.sol";
 import "./PostStorage.sol";
+import "./FeedStorage.sol";
 
 contract Feed {
 	Post postContract;
-
-	// stores all posts (only storing the ids) to generate the feed for users
-	// latest posts are always at the end of the array
-	uint256[] globalFeed;
-	// keep track of scroll states. 
-	// scroll states tell us which post of the globalFeed did the user last scrolled until
-	// this allow us to return the next N posts from the last-scrolled-until post
-	mapping(address => uint256) scrollStates;
+	FeedStorage storageContract;
+	PostStorage postStorageContract;
 	uint256 POSTS_PER_SCROLL = 10;
 	// the index at which to inject an advertisement on each scroll
 	uint256 INSERT_AD_AT_IDX = POSTS_PER_SCROLL / 2;
 
-	constructor(Post _postContract) {
+	constructor(Post _postContract, PostStorage _postStorageContract, FeedStorage _storageContract) {
+		postStorageContract = _postStorageContract;
+		storageContract = _storageContract;
 		postContract = _postContract;
 	}
 
@@ -28,28 +25,28 @@ contract Feed {
 
 	// adds this post to the global feed
 	function addToFeed(uint256 postId) public postContractOnly {
-		globalFeed.push(postId);
+		storageContract.addToFeed(postId);
 	}
 
 	// initializes the start of a scroll.
 	// this returns the latest N posts, where N=POSTS_PER_SCROLL specified at the start of this contract
 	function startScroll() public returns (PostStorage.Post[] memory) {
 		// start idx = last element of array (where the lastest post is at)
-		return scrollPosts(globalFeed.length - 1);
+		return scrollPosts(storageContract.getGlobalFeedSize() - 1);
 	}
 
 	// continues the scroll.
 	// this returns the next N posts, starting from where the user last left off, as captured by the `scrollStates` mapping
 	function continueScroll() public returns (PostStorage.Post[] memory) {
 		// start idx = the latest post which the user has not seen according to `scrollStates`
-		return scrollPosts(scrollStates[msg.sender]);
+		return scrollPosts(storageContract.getScrollState(msg.sender));
 	}
 
 	// return the next 10 (non-deleted && non-flagged) posts starting from startIdx.
 	// note that we count from the end of array to start of array, as the latest posts are the end of the array.
 	function scrollPosts(uint startIdx) private returns (PostStorage.Post[] memory) {
-		require(startIdx >= 0 && globalFeed.length > 0 , "no more posts to scroll");
-
+		require(startIdx >= 0, "no more posts to scroll");
+		address viewer = msg.sender;
 		uint numPosts = 0;
 		uint idx = startIdx;
 		PostStorage.Post[] memory posts = new PostStorage.Post[](POSTS_PER_SCROLL);
@@ -68,16 +65,17 @@ contract Feed {
 				// if we cannot find an ad.. continue adding more posts from global feed
 			}
 
-			uint postId = globalFeed[idx];
-			if (postContract.isValidPost(postId) && postContract.notPrivateOrIsFollower(postId, msg.sender)) {
-				posts[numPosts] = postContract.viewPost(postId);
+			uint postId = storageContract.getPostIdByIdx(idx);
+			if (postContract.isValidPost(postId) && postContract.notPrivateOrIsFollower(postId, viewer)) {
+				postContract.feedIncrViewCount(postId, viewer);
+				posts[numPosts] = postStorageContract.getPost(postId);
 				numPosts++;
 			} 
 			idx--;
 		}
 
 		// for next scroll, we start searching from this index
-		scrollStates[msg.sender] = idx; 
+		storageContract.setScrollState(viewer, idx);
 
 		return posts;
 	}

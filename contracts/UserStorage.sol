@@ -31,6 +31,7 @@ contract UserStorage is Authorizable {
 
 	function createUser(address creator, string memory _name, string memory _email, uint _age) external isAuthorized {
 		Profile storage user = users[creator];
+		user.addr = creator;
 		user.name = _name;
 		user.email = _email;
 		user.age = _age;
@@ -49,7 +50,7 @@ contract UserStorage is Authorizable {
 	}
 	
 	function userExists(address user) external view isAuthorized returns (bool) {
-		return users[user].addr != address(0);
+		return users[user].addr == user;
 	}	
 
 	function newPost(address creator, uint postId) external isAuthorized {

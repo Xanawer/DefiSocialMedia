@@ -99,8 +99,10 @@ contract ContentModerationStorage is Authorizable {
 		uint idx = voters[voter].haventVoteIdx;
 
 		// remove from havent vote array
-		haventVote[idx] = haventVote[haventVote.length - 1];
+		address lastVoter = haventVote[haventVote.length - 1];
+		haventVote[idx] = lastVoter;
 		haventVote.pop();
+		voters[lastVoter].haventVoteIdx = idx;
 	}
 
 	function approve(uint postId, address voter) external isAuthorized {
@@ -141,8 +143,10 @@ contract ContentModerationStorage is Authorizable {
 
 	function removeFromActiveDisputesArr(uint postId) private isAuthorized {
 		uint idx = disputes[postId].activeDisputesIdx;
-		activeDisputes[idx] = activeDisputes[activeDisputes.length - 1];
+		uint lastDispute = activeDisputes[activeDisputes.length - 1];
+		activeDisputes[idx] = lastDispute;
 		activeDisputes.pop();
+		disputes[lastDispute].activeDisputesIdx = idx;
 	}
 
 	function resetVoters(address[] memory votersArr) private isAuthorized {

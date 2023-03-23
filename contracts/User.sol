@@ -48,7 +48,7 @@ contract User{
         require(bytes(_name).length > 0, "name is empty");
         require(bytes(_email).length > 0, "email is empty");
         require(_age >= 13, "you are too young");
-        require(storageContract.userExists(creator), "user already exists");
+        require(!storageContract.userExists(creator), "user already exists");
         storageContract.createUser(creator, _name, _email, _age);
     }
     
@@ -57,11 +57,11 @@ contract User{
         return storageContract.getProfile(msg.sender);
     }
 
-    function getName(address user) public view mValidUser(msg.sender) returns(string memory) {
+    function getName(address user) public view mValidUser(user) returns(string memory) {
         return storageContract.getName(user);
     }
 
-    function getFollowerCount(address user) public view mValidUser(msg.sender)  returns(uint) {
+    function getFollowerCount(address user) public view mValidUser(user)  returns(uint) {
         return storageContract.getFollowCount(user);
     }
 

@@ -12,6 +12,7 @@ contract AdsMarket {
 	uint256 ADVERTISING_COST_PER_DAY = 1000; // in tokens
 	uint256 nextPayout; // time of next payout
 	uint256 DISTRIBUTE_PERCENTAGE = 90; // percentage of the total ad revenue generated to distribute back to creators
+	uint adsRevenue;
 
 	constructor(Post _postContract, Token _tokenContract, User _userContract) {
 		owner = msg.sender;
@@ -38,6 +39,7 @@ contract AdsMarket {
 		uint tokensRequired = daysToAdvertise * ADVERTISING_COST_PER_DAY;
 		require(tokensRequired >= tokenContract.balanceOf(msg.sender), "you have insufficient tokens to advertise for the specified amount of days");
 		tokenContract.transferFrom(msg.sender, address(tokenContract), tokensRequired);
+		adsRevenue += tokensRequired;
 
 		uint endTime = block.timestamp + daysToAdvertise * 1 days;
 		return postContract.createAd(msg.sender, caption, ipfsCID, endTime);
@@ -54,15 +56,16 @@ contract AdsMarket {
 		(payees, payoutPortion, totalPortions) = postContract.getAdRevenueDistribution();
 		postContract.resetMonthlyViewCounts();
 
-		uint totalAdRevenue = tokenContract.balanceOf(address(this));
-		uint distributeAmt = totalAdRevenue * DISTRIBUTE_PERCENTAGE / 100;
+		uint distributeAmt = adsRevenue * DISTRIBUTE_PERCENTAGE / 100;
+		adsRevenue -= distributeAmt;
 
 		for (uint i = 0; i < payees.length ; i++) {
 			address payee = payees[i];
 			tokenContract.transferTo(payee, distributeAmt * payoutPortion[i] / totalPortions);
 		}
 
-		uint commissionAmt = tokenContract.balanceOf(address(this));
+		uint commissionAmt = adsRevenue;
+		adsRevenue = 0;
 		tokenContract.transferTo(owner, commissionAmt);
 	}
 }

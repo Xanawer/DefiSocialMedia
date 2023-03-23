@@ -52,4 +52,11 @@ contract Token is ERC20, Authorizable {
 	function transferTo(address addr, uint amt) external isAuthorized emergencyStop {
 		transfer(addr, amt);
 	}
+
+	// stop any transfer if emergency stop is activated
+    function _beforeTokenTransfer(
+        address from,
+        address to,
+        uint256 amount
+    ) internal virtual override emergencyStop {}	
 }

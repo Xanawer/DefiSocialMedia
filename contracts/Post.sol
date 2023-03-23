@@ -1,98 +1,51 @@
 pragma solidity ^0.8.0;
 
-import "./MediaNFT.sol";
+import "./NFT.sol";
 import './Token.sol';
 import "./RNG.sol";
-import {ContentModerationLogic as ContentModeration} from "./ContentModerationLogic.sol";
-import "./User.sol";
+import "./ContentModeration.sol";
+import "./PostStorage.sol";
+import "./User.sol";	
 import "./Feed.sol";
 
-contract Post {
-	// === POST DATA STRUCTURES ===
-	struct Comment {
-		uint256 id;
-		address owner;
-		uint256 timestamp;
-		string text;
-	}
-
-	struct PostData {
-		uint256 id;
-		address creator;
-		string caption;
-		uint256 likes;
-		Comment[] comments;
-		uint256 timestamp;
-		uint256 viewCount;
-		int mediaNFTID; // value of -1 dictates no media
-		bool deleted;
-		bool flagged;
-		uint256 reportCount;
-	}
-
+contract Post{
 	address owner;
+
+	PostStorage storageContract;
 	User userContract;
-	MediaNFT nftContract;
+	NFT nftContract;
 	Token tokenContract;
 	RNG rngContract;
 	Feed feedContract;
-	// running number of post ids
-	uint256 nextPostID = 0;
-	// mapping of postID to the post structs
-	mapping(uint256 => PostData) idToPost;
-	// mapping for users to all of their posts (stored as an array of post ids)
-	mapping(address => uint256[]) userToPosts;
-	// keep track of who liked each post to ensure that there are no duplicate likes for this post (i.e an account cannot like a post twice)
-	// it is a mapping of postID => user address => boolean value (true if user has liked this post)
-	mapping(uint256 => mapping(address => bool)) hasLiked; 
-	// keep track of who viewed each post at what time to reduce the chance of bot views  (an account can only increase the viewcount for a post at most once per day)
-	// it is a mapping of postID => user address => last viewed time
-	mapping(uint256 => mapping(address => uint256)) lastViewed;
+	ContentModeration contentModerationContract;	
+	address adContractAddr;	
+
 	// the duration of which a view count will not be double counted
-	uint256 VIEWCOUNT_COOLDOWN = 1 days;
-	// keep track of who reported each post to ensure that there are no duplicate reports for this post (i.e an account can only increase the reportCount for a post at most once)
-	// it is a mapping of postID => user address => boolean value (true if user has reported this post)
-	mapping(uint256 => mapping(address => bool)) hasReported;
-	uint256 MAX_REPORT_COUNT = 100;
-	// === END OF POST DATA STRUCTURES ===
-
-	// === ADVERTISEMENT DATA STRUCTURES ===
-	// struct for advertisement posts
-	struct Ad {
-		PostData postData;
-		uint256 endTime;
-	}
-	// list of all of the current advertisements
-	Ad[] ads;
-	// creators to pay out ad revneue for this month
-	address[] payeesThisMonth;
-	// viewCountThisMonth[i] correspond to the viewcount for creator in payeesThisMonth[i]
-	uint[] viewCountThisMonth;
-	// track the index where creator is stored in the `payeesThisMonth` array
-	mapping(address => uint) creatorToIdx;
-	// overall total view count for this month
-	uint totalViewCountThisMonth;
-	address adContractAddr;
-	// === END OF ADVERTISEMENT DATA STRUCTURES ===
-
-	// === CONTENT MODERATION DATA STRUCTURES ===
-	ContentModeration contentModerationContract;
-	// === END OF CONTENT MODERATION DATA STRUCTURES ===
+	uint256 VIEWCOUNT_COOLDOWN = 1 days;	
+	uint256 MAX_REPORT_COUNT = 100;	
 
 	// === EVENTS ===
-	event PostCreated(address creator, uint postID, uint256 timePosted);
-	event PostLiked(address UserLiked, uint postID);
-	event PostUnliked(address UserUnliked, uint postID);
-	event Commented(address commentor, uint postID, string comment);
-	event PostDeleted(address creator, uint postID, uint256 timeDeleted);
-	event CommentDeleted(address commentor, uint postID, uint256 timeDeleted);
-	
-	constructor (RNG _rngContract, MediaNFT _nftContract, Token _tokenContract) {
+	event PostCreated(address creator, uint postId, uint256 timePosted);
+	event PostLiked(address UserLiked, uint postId);
+	event PostUnliked(address UserUnliked, uint postId);
+	event PostDeleted(address creator, uint postId, uint256 timeDeleted);
+	event Commented(address commentor, uint postId, uint commentId, string comment);
+	event CommentDeleted(address commentor, uint postId, uint commentId, uint256 timeDeleted);	
+
+	constructor (RNG _rngContract, NFT _nftContract, Token _tokenContract, PostStorage _storageContract) {
 		nftContract = _nftContract;
 		tokenContract = _tokenContract;
 		rngContract = _rngContract;
+		storageContract = _storageContract;
 		owner = msg.sender;
-	}
+	}	
+
+	function init(User _userContract, Feed _feedContract, address _adContractAddr, ContentModeration _contentModerationContract) public contractOwnerOnly {
+		setUserContract(_userContract);
+		setFeedContract(_feedContract);
+		setAdContract(_adContractAddr);
+		setContentModerationContract(_contentModerationContract);
+	}	
 
 	modifier contractOwnerOnly() {
 		require(msg.sender == owner, "contract owner only function");
@@ -101,40 +54,104 @@ contract Post {
 
 	// === POST CRUD OPERATIONS ===
 	modifier creatorOnly(uint256 id) {
-		require(msg.sender == idToPost[id].creator, "only creator of post can do this action");
+		address creator = msg.sender;
+		require(isCreatorOf(id, creator), "only creator of post can do this action");
 		_;
 	}
 
 	// a valid post is defined as a non-deleted & non-flagged post with a valid id
-	modifier validId(uint256 id) { 
-		require (id >= 0 && id < nextPostID, "invalid post id");
+	modifier exists(uint256 id) { 
+		require(storageContract.postExists(id), "invalid post id");
 		_;
 	}
 
 	modifier notDeleted(uint256 id) {
-		require(!idToPost[id].deleted, "post has been deleted");
+		require(!storageContract.isDeleted(id), "post has been deleted");
 		_;
 	}
 
 	modifier notFlagged(uint256 id) {
-		require(!idToPost[id].flagged, "post has been flagged");
+		require(!storageContract.isFlagged(id), "post has been flagged");
 		_;
 	}
 
-	modifier userExists(address user) {
-		require(userContract.existsAndNotDeleted(user), "user does not exist");
+	modifier canAccess(uint id, address viewer) {
+		require(storageContract.postExists(id), "invalid post id");
+		require(!storageContract.isDeleted(id), "post has been deleted");	
+		require(!storageContract.isFlagged(id), "post has been flagged");
+		require(notPrivateOrIsFollower(id, viewer), "the user is private, and you are not in the following list");					
 		_;
+	}
+
+	modifier validUser(address user) {
+		require(userContract.validUser(user), "user does not exist");
+		_;
+	}
+
+	function viewPost(uint id) public canAccess(id, msg.sender) returns (PostStorage.Post memory) {
+		address viewer = msg.sender;
+		incrViewCount(id, viewer);
+		return storageContract.getPost(id);
+	}
+
+	function viewAllPostsByCreator(address creator) public returns (PostStorage.Post[] memory) {
+		uint[] memory postIds = userContract.getAllPostIdsByUser(creator);
+		uint n = countValidPosts(postIds);
+		PostStorage.Post[] memory filtered = new PostStorage.Post[](n);
+		uint idx = 0;
+
+		for (uint i = 0; i < postIds.length; i++) {
+			uint postId = postIds[i];
+			if (isValidPost(postId)) {
+				filtered[idx] = viewPost(postId);
+				idx++;
+			}
+		}
+
+		return filtered;
+	}
+
+	function countValidPosts(uint[] memory posts) private view returns (uint) {
+		uint count = 0;
+		for (uint i = 0; i < posts.length; i++) {
+			if (isValidPost(posts[i])) {
+				count++;
+			}
+		}
+		return count;
+	}
+
+	function createPost(string memory caption, string memory ipfsCID) public validUser(msg.sender) returns (uint) {
+		address creator = msg.sender;
+
+		uint nftID = mintNFT(creator, ipfsCID);
+		uint id = storageContract.createPost(creator, caption, nftID);
+		feedContract.addToFeed(id);
+		userContract.newPost(creator, id);
+
+		emit PostCreated(creator, id, block.timestamp);
+		return id;
+	}
+
+	function mintNFT(address creator, string memory ipfsCID) private returns (uint) {
+		uint nftID = 0;
+		// if this post has a media (i.e cid parameter is non empty)
+		if (bytes(ipfsCID).length > 0) { // same as ipfsCID != "", but cant do that in solidity
+			// mint nft to user
+			nftID = nftContract.mint(creator, ipfsCID);
+		}
+		return nftID;
 	}
 
 	// a viewer can view a creator post if the creator account is not private, or it is private and the viewer is a follower
-	function canViewCreatorPosts(address creator, address viewer) public view returns (bool) {
+	function notPrivateOrIsFollower(uint id, address viewer) public view returns (bool) {
+		address creator = storageContract.getCreator(id);
 		return !userContract.isPrivateAccount(creator) || userContract.isFollower(creator, viewer);
 	}
 
-	function notDeletedOrFlagged(uint256 id) public view validId(id) returns (bool) {
-		PostData storage post = idToPost[id];
-		return !post.deleted && !post.flagged;
-	}
+	function isValidPost(uint256 id) public view exists(id) returns (bool) {
+		return !storageContract.isDeleted(id) && !storageContract.isFlagged(id);
+	}	
 
 	// increments the view count for this post. 
 	// we do not count duplicate views within a day (i.e even if a user views a post multiple times in 1 day, we count it as he only viewed it at most one time)
@@ -142,176 +159,73 @@ contract Post {
 	// there are two view counts to maintain
 	// 1. overall view count
 	// 2. viewcount for this month, to calculate the ad revenue distribution for this monthly period
-	function incrViewCount(uint256 id) private {
+	function incrViewCount(uint256 id, address viewer) private {
 		// prevent duplicate counting of viewcount
-		if (block.timestamp - lastViewed[id][tx.origin] < VIEWCOUNT_COOLDOWN) {
+		if (block.timestamp - storageContract.lastViewed(id, viewer) < VIEWCOUNT_COOLDOWN) {
 			// if the time between now and last viewed is less than 1 day, we do not double count.
 			return;
 		}
 
-		// overall view count
-		idToPost[id].viewCount++;
+		// post view count
+		storageContract.incrementPostViewCount(id);
 
 		// viewcount for this month
-		// creator of this post
-		address creator = idToPost[id].creator;
-		// idx of this creator in the `payeesThisMonth` array
-		uint idx = creatorToIdx[creator];
-		// check if we are already tracking this creator (i.e the creator at `payeesThisMonth[idx]` is really the creator)
-		bool creatorAlreadyTracked = idx < payeesThisMonth.length && payeesThisMonth[idx] == creator;
-		if (!creatorAlreadyTracked) {
-			// this creator has not been tracked this month, add it to the end of the array and track the index of where it was stored
-			idx = payeesThisMonth.length;
-			creatorToIdx[creator] = idx;
-			payeesThisMonth.push(creator);
-			viewCountThisMonth.push(0);
-		}
-		// increment viewcounts for this month
-		viewCountThisMonth[idx]++;
-		totalViewCountThisMonth;
-
-		lastViewed[id][tx.origin] = block.timestamp;
-	}
-
-	// get post by post id. filters out deleted comments
-	function getPost(uint256 id) public validId(id) notDeleted(id) notFlagged(id) returns (PostData memory)  {
-		PostData memory post = idToPost[id];
-		require(canViewCreatorPosts(post.creator, tx.origin), "the user is private, and you are not in the following list");
-		incrViewCount(id);
-		return post;
-	}
-
-	// get multiple posts by multiple postids. filters out deleted & flagged posts and comments.
-	function getPosts(uint256[] memory postIds) private returns (PostData[] memory) {
-		// note that the length of the `posts` array is just an esimate of the true number of non-deleted posts
-		// we need to give an estimated length because we cannot allocate a dynamically sized memory array in solidity (i.e an array without a specified length).
-		PostData[] memory posts = new PostData[](postIds.length);
-		// number of valid posts
-		uint n = 0; 
-		// find all valid posts
-		for (uint i = 0; i < postIds.length; i++) {
-			uint postId = postIds[i];
-			if (notDeletedOrFlagged(postId) && canViewCreatorPosts(idToPost[postId].creator, tx.origin)) {
-				posts[n] = getPost(postId);
-				n++;
-			}
-		}
-
-		// copy over results to an array with exactly n elements.
-		// this is so that we return an array with the correct number of elements (n).
-		PostData[] memory postsResult = new PostData[](n);
-		for (uint i = 0; i < n; i++) {
-			postsResult[i] = posts[i];
-		}
-
-		return postsResult;
-	}
-
-	// returns all valid posts associated with this user (i.e post.creator == user)
-	function getAllPostsByUser(address user) public returns (PostData[] memory) {
-		require(canViewCreatorPosts(user, tx.origin), "the user is private, and you are not in the following list");
-		uint256[] storage postIds = userToPosts[user];
-		return getPosts(postIds);
-	}
-
-	// creates a post where the owner is msg.sender, caption is given as the first argument,
-	// and ipfsCID is an optional field to indicate the media to associate with this post.
-	// if ipfsCID is empty (i.e ipfsCID == ""), we take it as there is no media.
-	// else if ipfsCID is non empty, we mint an nft to the user with the corresponding ipfsCID.
-
-	// the function also adds the created post to the global feed.
-	// the function returns the id of the created post
-	function createPost(string memory caption, string memory ipfsCID) public userExists(msg.sender) returns (uint) {
-		// default value of -1 indicates this post does not have any media attached to it
-		int mediaNFTID = -1;
-		// if this post has a media (i.e cid parameter is non empty)
-		if (bytes(ipfsCID).length > 0) { // same as ipfsCID != "", but cant do that in solidity
-			// mint nft to user
-			mediaNFTID = int(nftContract.mint(msg.sender, ipfsCID));
-		}
-		PostData storage post = idToPost[nextPostID];
-
-		post.id = nextPostID;
-		post.creator = msg.sender;
-		post.caption = caption;
-		post.likes = 0;
-		post.timestamp = block.timestamp;
-		post.viewCount = 0;
-		post.mediaNFTID = mediaNFTID;
-		post.deleted = false; 
-		
-		nextPostID++;
-		userToPosts[msg.sender].push(post.id);
-		feedContract.addToFeed(post.id);
-		
-		emit PostCreated(msg.sender, post.id, block.timestamp);
-		return post.id;
-	}
+		storageContract.incrementMonthlyViewCount(id);
+		storageContract.incrementMonthlyTotalViewCount();		
+		storageContract.updateLastViewed(id, viewer, block.timestamp);
+	}		
 
 	// like the post specified by `id`. the liker is the `msg.sender`
-	function like(uint256 id) public validId(id) notDeleted(id) notFlagged(id) userExists(msg.sender) {
-		require(canViewCreatorPosts(idToPost[id].creator, tx.origin), "the user is private, and you are not in the following list");
+	function like(uint256 id) public canAccess(id, msg.sender) validUser(msg.sender) {
 		address liker = msg.sender;
-		require(!hasLiked[id][liker], "you have already liked this post");
-		hasLiked[id][liker] = true;
-		idToPost[id].likes++;
-		emit PostLiked(msg.sender, id);
-	}
+		require(!storageContract.hasLiked(id, liker), "you have already liked this post");
+		storageContract.like(id, liker);
+		emit PostLiked(liker, id);
+	}	
 
 	// unlike the post specified by `id`. the liker is the `msg.sender`
-	function unlike(uint256 id) public validId(id) notDeleted(id) notFlagged(id) {
-		require(canViewCreatorPosts(idToPost[id].creator, tx.origin), "the user is private, and you are not in the following list");
-		address liker = msg.sender;
-		require(hasLiked[id][liker], "you have not liked this post");
-		hasLiked[id][liker] = false;
-		idToPost[id].likes--;
-		emit PostUnliked(msg.sender, id);
+	function unlike(uint256 id) public canAccess(id, msg.sender) {
+		address unliker = msg.sender;
+		require(storageContract.hasLiked(id, unliker), "you have not liked this post");
+		storageContract.unlike(id, unliker);
+		emit PostUnliked(unliker, id);
 	}
 
 	// add a comment with `text` to post with id of `id`. the commentor is `msg.sender`.
 	// returns the id of the comment
-	function addComment(uint256 id, string memory text) public validId(id) notDeleted(id) notFlagged(id) userExists(msg.sender) returns (uint) {
-		require(canViewCreatorPosts(idToPost[id].creator, tx.origin), "the user is private, and you are not in the following list");
-		uint256 commentID = idToPost[id].comments.length;
-		idToPost[id].comments.push(Comment(commentID, msg.sender, block.timestamp, text));
-		emit Commented(msg.sender, id, text);
-		return commentID;
-	}
+	function addComment(uint256 id, string memory text) public canAccess(id, msg.sender) validUser(msg.sender) returns (uint) {
+		address commentor = msg.sender;
+		uint commentId = storageContract.addComment(id, commentor, text);
+		emit Commented(commentor, id, commentId, text);
+		return commentId;
+	}	
 
 	// delete a comment with the specified postID and commentID.
 	// the commentator is `msg.sender`. Only the owner of this comment can delete the comment.
-	function deleteComment(uint256 postID, uint256 commentID) public validId(postID) notDeleted(postID) notFlagged(postID) {
-		require(canViewCreatorPosts(idToPost[postID].creator, tx.origin), "the user is private, and you are not in the following list");		
-		require(commentID >= 0 && commentID < idToPost[postID].comments.length, "invalid comment ID");
-		Comment[] storage comments = idToPost[postID].comments;
-		for (uint i = 0; i < comments.length; i++) {
-			if (comments[i].id == commentID) {
-				require(comments[i].owner == msg.sender, "only owner of this comment can delete this comment");
-				// delete this comment
-				comments[i] = comments[comments.length - 1];
-				comments.pop();
-				emit CommentDeleted(msg.sender, postID, block.timestamp);
-				return;
-			}
-		}
-		require(false, "cannot find comment");
+	function deleteComment(uint256 postID, uint256 commentID) public canAccess(postID, msg.sender) {	
+		require(storageContract.commentExists(postID, commentID), "invalid comment ID");
+		address commentor = msg.sender;
+		storageContract.deleteComment(postID, commentID);
+		emit CommentDeleted(commentor, postID, commentID, block.timestamp);		
 	}
 
 	// delete the post specified by `id`. Only the owner of the post can delete the post.
-	function deletePost(uint256 id) public creatorOnly(id) validId(id) notDeleted(id) {
-		idToPost[id].deleted = true;
+	function deletePost(uint256 id) public creatorOnly(id) exists(id) notDeleted(id) {
+		storageContract.deletePost(id);
 		emit PostDeleted(msg.sender, id, block.timestamp);
-	}
+	}	
 
 	// report this post specified by `id`
-	function reportPost(uint256 id) public validId(id) notDeleted(id) notFlagged(id) userExists(msg.sender) {
-		require(!hasReported[id][msg.sender], "you have already reported this post");
-		idToPost[id].reportCount++;
-		hasReported[id][msg.sender] = true;
-		if (idToPost[id].reportCount >= MAX_REPORT_COUNT) {
-			idToPost[id].flagged = true;
+	function reportPost(uint256 id) public canAccess(id, msg.sender) validUser(msg.sender) {
+		address reporter = msg.sender;
+		require(storageContract.hasReported(id, reporter),"you have already reported this post");
+
+		uint reportCount = storageContract.report(id, reporter);
+
+		if (reportCount >= MAX_REPORT_COUNT) {
+			storageContract.setFlagged(id, true);
 		}
-	}
+	}	
 
 	// get the tokenURI (i.e image link) to the NFT specified by `id`
 	function getTokenURIByTokenID(uint id) public view returns (string memory) {
@@ -319,13 +233,11 @@ contract Post {
 	}
 
 	// get the tokenURI (i.e image link) to the NFT in the post specified by `id`
-	function getTokenURIByPostID(uint id) public view validId(id) notDeleted(id) notFlagged(id) returns (string memory) {
-		require(canViewCreatorPosts(idToPost[id].creator, tx.origin), "the user is private, and you are not in the following list");		
-		int tokenId = idToPost[id].mediaNFTID;
-		require(tokenId >= 0, "this post does not have media");
-		return getTokenURIByTokenID(uint(tokenId));
-	}
-
+	function getTokenURIByPostID(uint id) public view canAccess(id, msg.sender) returns (string memory) {
+		uint tokenId = storageContract.getNFTID(id);
+		require(tokenId > 0, "this post does not have media");
+		return getTokenURIByTokenID(tokenId);
+	}	
 
 	modifier userContractOnly() {
 		require(msg.sender == address(userContract), "user contract only");
@@ -334,29 +246,22 @@ contract Post {
 
 	function setUserContract(User _userContract) public contractOwnerOnly {
 		userContract = _userContract;
-	}
+	}	
 
-	// delete all posts associated with `user`. this function is called by the User contract when deleting a user.
-	// the tx.origin must be the same address as `user`.
-	function deleteAllUserPosts(address user) external userContractOnly {
-		require (tx.origin == user, "only the specified user can initiate this action");
-		uint256[] storage posts = userToPosts[user];
-		for (uint i = 0; i < posts.length; i++) {
-			uint256 postId = posts[i];
-			idToPost[postId].deleted = true;
-		}
-	}
+	function batchSetDeleted(uint[] memory postIds) external userContractOnly {
+		storageContract.batchSetDeleted(postIds);
+	}	
 
 	function isCreatorOf(uint256 id, address creator) public view returns (bool) {
-		return idToPost[id].creator == creator;
+		return storageContract.getCreator(id) == creator;
 	}
 
 	function getCreator(uint id) public view returns (address) {
-		return idToPost[id].creator;
+		return storageContract.getCreator(id);
 	}
 
 	function isFlagged(uint256 id) public view returns (bool) {
-		return idToPost[id].flagged;
+		return storageContract.isFlagged(id);
 	}
 	// === POST CRUD OPERATIONS ===
 
@@ -371,73 +276,51 @@ contract Post {
 	}
 
 	// similar to createPost, but in stead of adding to the global feed, we add to the ads array.
-	function createAd(address user, string memory caption, string memory ipfsCID, uint endTime) public AdContractOnly returns (uint) {
-		// default value of -1 indicates this post does not have any media attached to it
-		int mediaNFTID = -1;
-		// if this post has a media (i.e cid parameter is non empty)
-		if (bytes(ipfsCID).length > 0) { // same as ipfsCID != "", but cant do that in solidity
-			// mint nft to user
-			mediaNFTID = int(nftContract.mint(user, ipfsCID));
-		}
+	function createAd(address creator, string memory caption, string memory ipfsCID, uint endTime) public AdContractOnly returns (uint) {
+		uint nftId = mintNFT(creator, ipfsCID);
 
-		Ad storage ad = ads.push();
-		ad.endTime = endTime;
-
-		PostData storage post = ad.postData;
-		post.id = nextPostID;
-		post.creator = user;
-		post.caption = caption;
-		post.likes = 0;
-		post.timestamp = block.timestamp;
-		post.viewCount = 0;
-		post.mediaNFTID = mediaNFTID;
-		post.deleted = false; 
+		uint id = storageContract.createPost(creator, caption, nftId);
+		storageContract.createAdWithPostId(id, endTime);
 		
-		userToPosts[user].push(post.id);
-		idToPost[post.id] = post;
-		nextPostID++;
-		
-		return post.id;
-	}
+		return id;
+	}	
 
 	// choose an advertisement uniformly at random so that each ad gets an equal chance 
 	// returns a tuple (ad, found), where ad is the advertisement to return, and found is a bool indicating if we successfully found an ad
-	function getAd() public returns (Ad memory, bool) {
-		while (ads.length > 0) {
-			uint n = ads.length;	
+	function getAdPost() public returns (PostStorage.Post memory, bool) {
+		PostStorage.Post memory adPost;
+		bool found = false;
+		while (true) {
+			uint n = storageContract.getAdsCount();	
+			if (n == 0) {
+				break;
+			}
+			
 			uint randIdx = rngContract.random() % n;
 			// check if this ad is expired or is somehow flagged/deleted
-			if (ads[randIdx].endTime < block.timestamp || !notDeletedOrFlagged(ads[randIdx].postData.id)) {
-				// delete this invalid ad by..
- 				// firstly, replace this expired ad with the ad at the last idx
-				ads[randIdx] = ads[n - 1];
-				// secondly, delete the last idx
-				ads.pop(); 
+			PostStorage.Ad memory ad = storageContract.getAdvertisementByIndex(randIdx);
+			if (ad.endTime < block.timestamp || !isValidPost(ad.postId)) {
+				storageContract.removeAdByIdx(randIdx);
 			} else {
-				// this ad is valid, return this ad!
-				return (ads[randIdx], true);
+				adPost = storageContract.getPost(ad.postId);
+				found = true;
+				break;
 			}
 		}
 
-		Ad memory emptyAd; // we have to return this because solidity does not have null values..
-		return (emptyAd, false);
-	}
+		return (adPost, found);
+	}	
 
-	// calculates the distribution of ad revenue to creators for the current month according to viewcount
-	// returns the following: (creators, viewCount, totalViewCountThisMonth) where
-	// 1. payee[i] is the creator who will receive ad payouts
-	// 2. viewCount[i] is the number of views payee[i] got in this month.
 	function getAdRevenueDistribution() public view AdContractOnly returns (address[] memory, uint[] memory, uint) {
-		return (payeesThisMonth, viewCountThisMonth, totalViewCountThisMonth);
-	}
+		return (storageContract.getMonthlyViewStatistics());
+	}	
 
 	// resets the monthly tracker for view counts
 	function resetMonthlyViewCounts() public AdContractOnly {
-		delete payeesThisMonth;
-		delete viewCountThisMonth;
-		totalViewCountThisMonth = 0;
+		storageContract.resetMonthlyViewStatistics();
 	}
-	// === END OF ADVERTISMENT OPERATIONS ===
+
+	// === END OF ADVERTISMENT OPERATIONS ===	
 
 	// === CONTENT MODERATION OPERATIONS === 
 	modifier ContentModerationContractOnly {
@@ -449,22 +332,21 @@ contract Post {
 		contentModerationContract = _contentModerationContract;
 	}
 
-	function resetFlagAndReportCount(uint postId) public ContentModerationContractOnly {
-		idToPost[postId].flagged = false;
-		idToPost[postId].reportCount = 0;
+	function resetFlagAndReportCount(uint id) public ContentModerationContractOnly {
+		storageContract.resetReportCount(id);
+		storageContract.setFlagged(id, false);
 	}
 
 	// users can call this function to get a flagged post which has a dispute open.
 	// they can only view the post corresponding to the dispute they are voting for.
-	function getPostToReviewDispute(uint postId) public view validId(postId) notDeleted(postId) returns (PostData memory) {
-		require(contentModerationContract.isVotingFor(msg.sender, postId), "you are not voting for the specified post");
-		PostData memory post = idToPost[postId];
-		return post;
+	function getPostToReviewDispute(uint postId) public view exists(postId) notDeleted(postId) returns (PostStorage.Post memory) {
+		address voter = msg.sender;
+		require(contentModerationContract.isVotingFor(voter, postId), "you are not voting for the specified post");
+		return storageContract.getPost(postId);
 	}
 	// === END OF CONTENT MODERATION OPERATIONS === 
 
 	function setFeedContract(Feed _feedContract) public contractOwnerOnly {
 		feedContract = _feedContract;
-	}
+	}	
 }
-

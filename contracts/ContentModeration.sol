@@ -6,7 +6,7 @@ import "./Post.sol";
 import "./User.sol";	
 import "./Token.sol";
 
-contract ContentModerationLogic {
+contract ContentModeration {
 	CMS storageContract;
 	RNG rngContract;
 	Token tokenContract;
@@ -32,8 +32,8 @@ contract ContentModerationLogic {
 		userContract = _userContract;
 	}
 
-	modifier userExists(address user) {
-		require(userContract.existsAndNotDeleted(user), "user does not exist");
+	modifier validUser(address user) {
+		require(userContract.validUser(user), "user does not exist");
 		_;
 	}
 
@@ -55,7 +55,7 @@ contract ContentModerationLogic {
 		require(tokenContract.balanceOf(creator) >= OPEN_DISPUTE_LOCKED_AMT, "you do not have enough balance to open a dispute");
 
 		// get locked tokens from disputer
-		storageContract.lockTokens(creator, OPEN_DISPUTE_LOCKED_AMT);
+		tokenContract.transferFrom(creator, address(tokenContract), OPEN_DISPUTE_LOCKED_AMT);
 
 		uint endTime = block.timestamp + MIN_DISPUTE_PERIOD;
 		storageContract.addDispute(creator, postId, reason, OPEN_DISPUTE_LOCKED_AMT, endTime);
@@ -64,7 +64,7 @@ contract ContentModerationLogic {
 	// users can request for a random dispute to vote for . VOTE_LOCKED_AMT amount of tokens will be transferred from the voter to be locked in this dispute. 
 	// a user can only vote for one dispute at any point of time.
 	// this function returns a random disputeID to vote for.
-	function allocateDispute() public userExists(msg.sender) atVotingStage(CMS.VotingStage.NOT_INVOLVED) returns (uint) {
+	function allocateDispute() public validUser(msg.sender) atVotingStage(CMS.VotingStage.NOT_INVOLVED) returns (uint) {
 		address voter = msg.sender;
 		uint n = storageContract.getActiveDisputesCount();
 		require(n > 0, "no active disputes to vote for now");
@@ -73,7 +73,7 @@ contract ContentModerationLogic {
 		require(tokenContract.balanceOf(voter) >= VOTE_LOCKED_AMT, "you do not have enough tokens to vote");
 
 		// get locked tokens from voter
-		storageContract.lockTokens(voter, VOTE_LOCKED_AMT);
+		tokenContract.transferFrom(voter, address(tokenContract), VOTE_LOCKED_AMT);
 		// get random index from 0..n-1 to pick from the list of activeDisputes
 		uint randIdx = rngContract.random() % n;
 		// get dispute id that is randomly picked
@@ -117,7 +117,7 @@ contract ContentModerationLogic {
 
 		// refund those who havent vote
 		for(uint i = 0; i < numHaventVote; i++) {
-				storageContract.transfer(haventVote[i], VOTE_LOCKED_AMT);
+				tokenContract.transferTo(haventVote[i], VOTE_LOCKED_AMT);
 		}
 		
 		// if we do not hit the minimum amount of voters, then we take it as the results of the dispute is not accurate, 
@@ -144,12 +144,12 @@ contract ContentModerationLogic {
 		uint numRejectors = rejectors.length;
 
 		for(uint i = 0; i < numApprovers; i++) {
-			storageContract.transfer(approvers[i], VOTE_LOCKED_AMT);
+			tokenContract.transferTo(approvers[i], VOTE_LOCKED_AMT);
 		}
 		for(uint i = 0; i < numRejectors; i++) {
-			storageContract.transfer(rejectors[i], VOTE_LOCKED_AMT);
+			tokenContract.transferTo(rejectors[i], VOTE_LOCKED_AMT);
 		}
-		storageContract.transfer(creator, OPEN_DISPUTE_LOCKED_AMT);
+		tokenContract.transferTo(creator, OPEN_DISPUTE_LOCKED_AMT);
 	}
 
 	function approveWin(uint postId, address creator) private {
@@ -168,11 +168,11 @@ contract ContentModerationLogic {
 		approveRewardPool -= approveRewardPool / n;
 
 		for(uint i = 0; i < numApprovers; i++) {
-			storageContract.transfer(approvers[i], rewardPerVoter);
+			tokenContract.transferTo(approvers[i], rewardPerVoter);
 		}
 
 		// return the creator his locked tokens & unflag his post
-		storageContract.transfer(creator, OPEN_DISPUTE_LOCKED_AMT);
+		tokenContract.transferTo(creator, OPEN_DISPUTE_LOCKED_AMT);
 		postContract.resetFlagAndReportCount(postId);
 
 		// redistribute rewards to the other pool, to deincentivze users from blindly repeatedly voting this option 
@@ -198,7 +198,7 @@ contract ContentModerationLogic {
 		rejectRewardPool -= rejectRewardPool / n;
 
 		for(uint i = 0; i < numRejectors; i++) {
-			storageContract.transfer(rejectors[i], rewardPerVoter);
+			tokenContract.transferTo(rejectors[i], rewardPerVoter);
 		}
 
 		// firstly, split the number of penalized tokens evenly between the two pools
@@ -228,14 +228,14 @@ contract ContentModerationLogic {
 	}
 
 	// voters can double check which dispute id they are voting for 
-	function getAllocatedDispute() public view userExists(msg.sender) returns (uint) {
+	function getAllocatedDispute() public view validUser(msg.sender) returns (uint) {
 		address voter = msg.sender;
 		require(!storageContract.notInvolved(voter), "you do not have a dispute to vote on currently");
 		return storageContract.getAllocatedDispute(voter);
 	}	
 
 	// for post contract to check the dispute that the `user` is voting for
-	function isVotingFor(address voter, uint postId) public view userExists(voter) returns (bool) {
+	function isVotingFor(address voter, uint postId) public view validUser(voter) returns (bool) {
 		require(!storageContract.notInvolved(voter), "you do not have a dispute to vote on currently");		
 		return storageContract.getAllocatedDispute(voter) == postId;
 	}	

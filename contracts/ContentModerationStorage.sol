@@ -1,7 +1,9 @@
 pragma solidity ^0.8.0;
 
 import './Token.sol';
-contract ContentModerationStorage {
+import "./Authorizable.sol";
+
+contract ContentModerationStorage is Authorizable {
 	struct Dispute {
 		// owner of this dispute (same as post's owner)
 		address owner;
@@ -44,10 +46,6 @@ contract ContentModerationStorage {
 		uint activeDisputeCount;
 	}
 
-	Token tokenContract;
-	address owner;
-	mapping(address => bool) authorizedContracts;	
-
 	// list of post ids that have active disputes (currently active disputes)
 	uint256[] activeDisputes;
 	// map of post id to dispute struct
@@ -58,24 +56,8 @@ contract ContentModerationStorage {
 	uint approveRewardPool = 0;
 	uint rejectRewardPool = 0;	
 
-	constructor(Token _tokenContract) {
-		tokenContract = _tokenContract;
-		owner = msg.sender;
-	}	
-
-	modifier ownerOnly() {
-		require(msg.sender == owner, "owner only function");
-		_;
-	}
-
-	modifier isAuthorized() {
-		require(authorizedContracts[msg.sender], "contract not authorized to perform this action");
-		_;
-	}
-
-
-	function authorizeContract(address c) public ownerOnly {
-		authorizedContracts[c] = true;
+	function init(address cmLogic) public ownerOnly {
+		authorizeContract(cmLogic);
 	}
 
 	// === CORE LOGIC ===
@@ -89,6 +71,10 @@ contract ContentModerationStorage {
 		dispute.voterRewardPool = 0;
 		dispute.active = true;
 		dispute.activeDisputesIdx = activeDisputes.length;
+		// reset arrays 
+		delete dispute.approvers;
+		delete dispute.rejectors;
+		delete dispute.haventVote;
 
 		activeDisputes.push(postId);
 
@@ -170,15 +156,6 @@ contract ContentModerationStorage {
 		disputers[creator].postHasDispute[postId] = false;
 		disputers[creator].activeDisputeCount--;
 	}	
-
-	// === token transfers ===
-	function transfer(address to, uint amt) external isAuthorized {
-		tokenContract.transfer(to, amt);
-	}
-
-	function lockTokens(address sender, uint amt) external isAuthorized {
-		tokenContract.transferFrom(sender, address(this), amt);
-	}
 
 	// === GETTERS AND SETTERS === 
 	function getVotingStage(address voter) external view isAuthorized returns (VotingStage) {

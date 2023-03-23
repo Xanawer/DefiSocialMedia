@@ -1,156 +1,140 @@
 pragma solidity ^0.8.0;
 
 import "./Post.sol";
+import "./UserStorage.sol";
 
-contract User {
-    // Struct to store user data
-    struct UserData {
-        address addr;
-        string name;
-        string email;
-        uint age;
-        bool deleted;
-        bool isPrivateAccount;
-        uint followCount;
-    }
-    
-    Post postContract;
-    // Mapping to store user data by address
-    mapping(address => UserData) private users;
-    // mapping of creator => follower => bool (true if follower is following creator)
-    mapping(address => mapping(address => bool)) isFollowing;
-    // mapping of creator => requester => index of the requester in `followRequests[creator]` array
-    mapping(address => mapping(address => uint)) followRequestsIdxMap;
-    // mapping of creator => follow requests
-    // this is to easily iterate through follow requests for the case where the creator unprivates his/her account, and the follow requests are automatically accepted
-    mapping(address => address[]) followRequests;
+contract User{
+	Post postContract;
+	UserStorage storageContract;
 
-    constructor(Post _postContract) {
+    constructor(Post _postContract, UserStorage _storageContract) {
         postContract = _postContract;
-    }
+		storageContract = _storageContract;
+    }	
 
-    modifier notDeleted(address user) {
-        require(!users[user].deleted, "user has been deleted");
+	modifier notDeleted(address user) {
+        require(!storageContract.isDeleted(user), "user has been deleted");
         _;
     }
 
     modifier userExists(address addr) {
-        require(addr == users[addr].addr, "user does not exist");
+        require(storageContract.userExists(addr), "user does not exist");
+        _;
+    }
+	
+	// m for modifier
+    modifier mValidUser(address addr) {
+        require(storageContract.userExists(addr) && !storageContract.isDeleted(addr), "not valid user");
         _;
     }
 
-    function existsAndNotDeleted(address addr) public view returns (bool) {
-        return addr == users[addr].addr && !users[addr].deleted;
+    // valid user defined as a user that exists and is not deleted
+    function validUser(address addr) public view returns (bool) {
+        return storageContract.userExists(addr) && !storageContract.isDeleted(addr);
     }
+
+	function getAllPostIdsByUser(address creator) public view mValidUser(creator) returns (uint[] memory) {
+		return storageContract.getAllPostIdsByUser(creator);
+	}
+
+	function newPost(address creator, uint postId) public  mValidUser(creator) {
+		require(msg.sender == address(postContract), "post contract only");
+		storageContract.newPost(creator, postId);
+	}	
 
     // Function to create a new user
     function createUser(string memory _name, string memory _email, uint _age) public {
+		address creator = msg.sender;
         require(bytes(_name).length > 0, "name is empty");
         require(bytes(_email).length > 0, "email is empty");
         require(_age >= 13, "you are too young");
-        require(users[msg.sender].addr == address(0), "user already exists");
-        UserData storage user = users[msg.sender];
-        user.addr = msg.sender;
-        user.name = _name;
-        user.email = _email;
-        user.age = _age;
+        require(storageContract.userExists(creator), "user already exists");
+        storageContract.createUser(creator, _name, _email, _age);
     }
     
     // Function to retrieve user profile
-    function getProfile() public view notDeleted(msg.sender) userExists(msg.sender) returns(UserData memory) {
-        return users[msg.sender];
+    function getProfile() public view mValidUser(msg.sender) returns(UserStorage.Profile memory) {
+        return storageContract.getProfile(msg.sender);
     }
 
-    function getName(address user) public view notDeleted(user) userExists(user) returns(string memory) {
-        return users[user].name;
+    function getName(address user) public view mValidUser(msg.sender) returns(string memory) {
+        return storageContract.getName(user);
     }
 
-    function getFollowerCount(address user) public view notDeleted(user) userExists(user) returns(uint) {
-        return users[msg.sender].followCount;
+    function getFollowerCount(address user) public view mValidUser(msg.sender)  returns(uint) {
+        return storageContract.getFollowCount(user);
     }
 
-    function updateName(string memory _name) public notDeleted(msg.sender) userExists(msg.sender) {
-        users[msg.sender].name = _name;
+    function updateName(string memory name) public mValidUser(msg.sender)   {
+        storageContract.setName(msg.sender, name);
+    }
+    function updateEmail(string memory email) public mValidUser(msg.sender)   {
+        storageContract.setEmail(msg.sender, email);
+    }
+    function updateAge(uint age) public mValidUser(msg.sender)   {
+        storageContract.setAge(msg.sender, age);
     }
 
-    function updateEmail(string memory _email) public notDeleted(msg.sender) userExists(msg.sender) {
-        users[msg.sender].email = _email;
+    function privateAccount() public mValidUser(msg.sender) {
+        storageContract.setPrivate(msg.sender, true);
     }
 
-    function updateAge(uint _age) public notDeleted(msg.sender) userExists(msg.sender) {
-        users[msg.sender].age = _age;
-    }
-
-    function privateAccount() public notDeleted(msg.sender) userExists(msg.sender) {
-        users[msg.sender].isPrivateAccount = true;
-    }
-
-    function unprivateAccount() public notDeleted(msg.sender) userExists(msg.sender) {
-        users[msg.sender].isPrivateAccount = false;
-        // upon unprivating an account, all follow requests will automatically be accepted
-        address[] storage requests = followRequests[msg.sender];
+    function unprivateAccount() public mValidUser(msg.sender) {
+		address creator = msg.sender;
+        storageContract.setPrivate(msg.sender, false);
+		address[] memory requests = storageContract.getFollowRequests(msg.sender);
         for (uint i = 0; i < requests.length; i++) {
-            address requester = requests[i];
-            delete followRequestsIdxMap[msg.sender][requester];
-            isFollowing[msg.sender][requester] = true;
+			address requester = requests[i];
+            storageContract.removeFromFollowRequests(creator, requester);
+			storageContract.addFollower(creator, requester);
+			storageContract.incrFollowCount(creator);
         }
-        delete followRequests[msg.sender];
     }
 
-    function acceptFollower(address requester) public notDeleted(msg.sender) userExists(msg.sender) { 
-        require(hasFollowRequest(msg.sender, requester), "follow request not found");
+    function acceptFollower(address requester) public mValidUser(msg.sender) { 
+		address creator = msg.sender;
+        require(storageContract.hasFollowRequest(creator, requester), "follow request not found");
         // remove requester
-        removeRequester(msg.sender, requester);
-        // add to following
-        isFollowing[msg.sender][requester] = true;
-        users[msg.sender].followCount++;
+		storageContract.removeFromFollowRequests(creator, requester);
+        // follow
+		storageContract.addFollower(creator, requester);
+		storageContract.incrFollowCount(creator);
     }
 
-    function removeFollower(address follower) public notDeleted(msg.sender) userExists(msg.sender) {
-        require(isFollowing[msg.sender][follower], "follower not found");
-        isFollowing[msg.sender][follower] = false;
-        users[msg.sender].followCount--;
+    function removeFollower(address follower) public mValidUser(msg.sender) {
+		address creator = msg.sender;
+        require(storageContract.isFollowing(creator, follower), "follower not found");
+        storageContract.removeFollower(creator, follower);
+		storageContract.decrFollowCount(creator);		
     }
 
-    function requestFollow(address user) public notDeleted(user) userExists(user) notDeleted(msg.sender) userExists(msg.sender) {
-        require(!isFollowing[user][msg.sender], "you have already followed this person");
-        require(!hasFollowRequest(user, msg.sender), "you have already requested to follow this person");
-        if (isPrivateAccount(user)) {
+    function requestFollow(address requester) public mValidUser(msg.sender) mValidUser(requester)  {
+		address creator = msg.sender;
+        require(!storageContract.isFollowing(creator, requester), "you have already followed this person");
+        require(!storageContract.hasFollowRequest(creator, requester), "you have already requested to follow this person");
+
+        if (storageContract.isPrivateAccount(creator)) {
             // add to follow requests
-            followRequestsIdxMap[user][msg.sender] = followRequests[user].length;
-            followRequests[user].push(msg.sender);
+            storageContract.addToFollowRequests(creator, requester);
         } else {
             // if the user is not private, other people can follow him without requesting   
-            isFollowing[user][msg.sender] = true;
+            storageContract.addFollower(creator, requester);
+			storageContract.incrFollowCount(creator);
         }
     }
 
-    function isFollower(address account, address follower) public view notDeleted(account) userExists(account) notDeleted(follower) userExists(follower) returns (bool) {
-        return isFollowing[account][follower];
+    function isFollower(address creator, address follower) public view mValidUser(creator) mValidUser(follower)  returns (bool) {
+        return storageContract.isFollowing(creator, follower);
     }
 
-    function hasFollowRequest(address account, address requester) private view notDeleted(account) userExists(account) notDeleted(requester) userExists(requester) returns (bool) {
-        uint idx = followRequestsIdxMap[account][requester];
-        address[] storage requests = followRequests[account];
-        bool foundRequester = idx < requests.length && requests[idx] == requester;
-        return foundRequester;
-    }
-
-    function removeRequester(address account, address requester) private notDeleted(account) userExists(account) notDeleted(requester) userExists(requester) {
-        uint idx = followRequestsIdxMap[account][requester];
-        address[] storage requests = followRequests[account];
-        requests[idx] = requests[requests.length - 1];
-        requests.pop();
-        delete followRequestsIdxMap[msg.sender][requester];
-    }
-
-    function isPrivateAccount(address addr) public view notDeleted(addr) userExists(addr) returns (bool) {
-        return users[addr].isPrivateAccount;
+    function isPrivateAccount(address addr) public view mValidUser(addr) returns (bool) {
+        return storageContract.isPrivateAccount(addr);
     }
 
     // Function to delete user data
-    function deleteUser() public notDeleted(msg.sender) userExists(msg.sender) {
-        postContract.deleteAllUserPosts(msg.sender);
-        users[msg.sender].deleted = true;
-    }
+    function deleteUser() public mValidUser(msg.sender) {
+		address creator = msg.sender;
+        postContract.batchSetDeleted(storageContract.getAllPostIdsByUser(creator));
+        storageContract.setDeleted(creator, true);
+    }	
 }

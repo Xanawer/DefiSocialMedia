@@ -1,6 +1,7 @@
 pragma solidity ^0.8.0;
 
 import "./Post.sol";
+import "./PostStorage.sol";
 
 contract Feed {
 	Post postContract;
@@ -32,35 +33,35 @@ contract Feed {
 
 	// initializes the start of a scroll.
 	// this returns the latest N posts, where N=POSTS_PER_SCROLL specified at the start of this contract
-	function startScroll() public returns (Post.PostData[] memory) {
+	function startScroll() public returns (PostStorage.Post[] memory) {
 		// start idx = last element of array (where the lastest post is at)
 		return scrollPosts(globalFeed.length - 1);
 	}
 
 	// continues the scroll.
 	// this returns the next N posts, starting from where the user last left off, as captured by the `scrollStates` mapping
-	function continueScroll() public returns (Post.PostData[] memory) {
+	function continueScroll() public returns (PostStorage.Post[] memory) {
 		// start idx = the latest post which the user has not seen according to `scrollStates`
 		return scrollPosts(scrollStates[msg.sender]);
 	}
 
 	// return the next 10 (non-deleted && non-flagged) posts starting from startIdx.
 	// note that we count from the end of array to start of array, as the latest posts are the end of the array.
-	function scrollPosts(uint startIdx) private returns (Post.PostData[] memory) {
+	function scrollPosts(uint startIdx) private returns (PostStorage.Post[] memory) {
 		require(startIdx >= 0 && globalFeed.length > 0 , "no more posts to scroll");
 
 		uint numPosts = 0;
 		uint idx = startIdx;
-		Post.PostData[] memory posts = new Post.PostData[](POSTS_PER_SCROLL);
+		PostStorage.Post[] memory posts = new PostStorage.Post[](POSTS_PER_SCROLL);
 		// add up to `POSTS_PER_SCROLL` posts to result, or until there is no more posts from global feed to return (i.e idx < 0)
 		while (numPosts < POSTS_PER_SCROLL && idx >= 0) {
 			// ADVERTISMENT INJECTION
 			if (numPosts == INSERT_AD_AT_IDX) {
 				bool found;
-				Post.Ad memory ad;
-				(ad, found) = postContract.getAd();
+				PostStorage.Post memory adPost;
+				(adPost, found) = postContract.getAdPost();
 				if (found) {
-					posts[numPosts] = ad.postData;
+					posts[numPosts] = adPost;
 					numPosts++;
 					continue;
 				}
@@ -68,8 +69,8 @@ contract Feed {
 			}
 
 			uint postId = globalFeed[idx];
-			if (postContract.notDeletedOrFlagged(postId) && postContract.canViewCreatorPosts(postContract.getCreator(postId), msg.sender)) {
-				posts[numPosts] = postContract.getPost(postId);
+			if (postContract.isValidPost(postId) && postContract.notPrivateOrIsFollower(postId, msg.sender)) {
+				posts[numPosts] = postContract.viewPost(postId);
 				numPosts++;
 			} 
 			idx--;

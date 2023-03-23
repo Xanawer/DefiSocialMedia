@@ -27,17 +27,17 @@ contract AdsMarket {
 		_;
 	}
 
-	modifier userExists(address user) {
-		require(userContract.existsAndNotDeleted(user), "user does not exist");
+	modifier validUser(address user) {
+		require(userContract.validUser(user), "user does not exist");
 		_;
 	}
 	
 	// creates an ad with the specified arguments. this function assumes the user has approved the `tokensRequired` amount of tokens to transfer to this contract.
 	// returns id of ad post created.
-	function createAd(string memory caption, string memory ipfsCID, uint daysToAdvertise) public userExists(msg.sender) returns (uint) {
+	function createAd(string memory caption, string memory ipfsCID, uint daysToAdvertise) public validUser(msg.sender) returns (uint) {
 		uint tokensRequired = daysToAdvertise * ADVERTISING_COST_PER_DAY;
 		require(tokensRequired >= tokenContract.balanceOf(msg.sender), "you have insufficient tokens to advertise for the specified amount of days");
-		tokenContract.transferFrom(msg.sender, address(this), tokensRequired);
+		tokenContract.transferFrom(msg.sender, address(tokenContract), tokensRequired);
 
 		uint endTime = block.timestamp + daysToAdvertise * 1 days;
 		return postContract.createAd(msg.sender, caption, ipfsCID, endTime);
@@ -59,10 +59,10 @@ contract AdsMarket {
 
 		for (uint i = 0; i < payees.length ; i++) {
 			address payee = payees[i];
-			tokenContract.transfer(payee, distributeAmt * payoutPortion[i] / totalPortions);
+			tokenContract.transferTo(payee, distributeAmt * payoutPortion[i] / totalPortions);
 		}
 
 		uint commissionAmt = tokenContract.balanceOf(address(this));
-		tokenContract.transfer(owner, commissionAmt);
+		tokenContract.transferTo(owner, commissionAmt);
 	}
 }

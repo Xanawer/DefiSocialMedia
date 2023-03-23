@@ -4,7 +4,7 @@ import '@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol';
 // ERC721: https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/token/ERC721/ERC721.sol
 // ERC721URIStorage: https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/token/extensions/ERC721URIStorage.sol
 
-contract MediaNFT is ERC721URIStorage {
+contract NFT is ERC721URIStorage {
 	// owner of this nft contract
 	address owner; 
 	// address of the post contract
@@ -23,7 +23,11 @@ contract MediaNFT is ERC721URIStorage {
 
 	constructor() ERC721("DefiSocialMediaNFT", "DSMNFT") {
 		owner = msg.sender;
-		nextTokenID = 0;
+		nextTokenID = 1; // id = 0 is reserved for indicating post with no media
+	}
+
+	function init(address _postContract) public ownerOnly {
+		setPostContract(_postContract);
 	}
 
 	function setPostContract(address _postContract) public ownerOnly {

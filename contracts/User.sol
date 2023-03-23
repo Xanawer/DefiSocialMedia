@@ -153,5 +153,4 @@ contract User {
         postContract.deleteAllUserPosts(msg.sender);
         users[msg.sender].deleted = true;
     }
-
 }

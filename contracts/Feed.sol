@@ -68,7 +68,7 @@ contract Feed {
 			}
 
 			uint postId = globalFeed[idx];
-			if (postContract.notDeletedOrFlagged(postId) && postContract.canViewCreatorPosts(postContract.getOwner(postId), msg.sender)) {
+			if (postContract.notDeletedOrFlagged(postId) && postContract.canViewCreatorPosts(postContract.getCreator(postId), msg.sender)) {
 				posts[numPosts] = postContract.getPost(postId);
 				numPosts++;
 			} 

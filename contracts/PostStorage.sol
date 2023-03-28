@@ -56,6 +56,7 @@ contract PostStorage is Authorizable {
 		uint totalViewCount;
 		// track the index where creator is stored in the `payees` array.
 		mapping(address => uint) creatorToIdx;
+		mapping(uint => uint) viewCountsByPost;
 	}
 	MonthlyViewInfo monthlyViewInfo;
 	// list of all of the current advertisements
@@ -82,6 +83,8 @@ contract PostStorage is Authorizable {
 	}	
 
 	function incrementMonthlyViewCount(uint id) external isAuthorized {
+		monthlyViewInfo.viewCountsByPost[id]++;
+
 		address creator = posts[id].creator;
 		address[] storage payees = monthlyViewInfo.payees;
 		uint[] storage viewCounts = monthlyViewInfo.viewCounts;		
@@ -99,6 +102,37 @@ contract PostStorage is Authorizable {
 
 		// increment viewcounts for this post for this month 
 		viewCounts[idx]++;
+	}
+
+	function removeAllMonthlyViewCountByPost(uint id) external isAuthorized {
+		uint viewCount = monthlyViewInfo.viewCountsByPost[id];
+		if (viewCount == 0) {
+			// if this post has no viewcount this month, we dont need to do anything
+			return;
+		}
+		// remove from monthly  total view count
+		monthlyViewInfo.totalViewCount -= viewCount;
+		
+		
+		address creator = posts[id].creator;
+		// idx of creator in payee and viewcounts array
+		uint idx = monthlyViewInfo.creatorToIdx[creator];
+		// remove from creator's viewcount
+		monthlyViewInfo.viewCounts[idx] -= viewCount;
+		if (monthlyViewInfo.viewCounts[idx] == 0) {
+			// if monthly view count of this creator becomes 0, remove him from the payee and viewcounts array
+			address[] storage payee = monthlyViewInfo.payees;
+			uint[] storage viewCounts = monthlyViewInfo.viewCounts;
+			// remove from payees array
+			address lastPayee = payee[payee.length - 1];
+			payee[idx] = lastPayee;
+			payee.pop();
+			monthlyViewInfo.creatorToIdx[lastPayee] = idx;
+			// remove from viewcounts array
+			viewCounts[idx] = viewCounts[viewCounts.length - 1];
+			viewCounts.pop();
+		}
+
 	}
 
 	function like(uint id, address liker) external isAuthorized {

@@ -224,6 +224,7 @@ contract Post{
 
 		if (reportCount >= MAX_REPORT_COUNT) {
 			storageContract.setFlagged(id, true);
+			storageContract.removeAllMonthlyViewCountByPost(id);
 		}
 	}	
 

@@ -17,7 +17,7 @@ contract AdsMarket {
 
 	// === EVENTS ===
 	event AdvertisementCreated(uint256 startDate, uint256 endDate);
-	
+	event WithdrawAdsPayout(address withdrawer,uint amount);
 
 	constructor(Post _postContract, Token _tokenContract, User _userContract, AdsMarketStorage _storageContract) {
 		owner = msg.sender;
@@ -83,5 +83,6 @@ contract AdsMarket {
 		address payee = msg.sender;
 		require(storageContract.getPayout(payee) >= amt, "amt specified is more than your payout");
 		storageContract.withdraw(payee, amt);
+		emit WithdrawAdsPayout(payee, amt);
 	}
 }

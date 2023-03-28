@@ -17,7 +17,7 @@ module.exports = async function (callback) {
 		const userContract = await User.deployed()
 		// const accounts = await web3.eth.getAccounts()
 
-		await userContract.createUser('test name', 'test@test.com', 23)
+		await userContract.createUser('test user1', 13)
 		const userProfile = await userContract.getProfile()
 		console.log({ userProfile })
 

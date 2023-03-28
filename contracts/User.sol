@@ -48,13 +48,12 @@ contract User{
 	}	
 
     // Function to create a new user
-    function createUser(string memory _name, string memory _email, uint _age) public {
+    function createUser(string memory _name, uint _age) public {
 		address creator = msg.sender;
         require(bytes(_name).length > 0, "name is empty");
-        require(bytes(_email).length > 0, "email is empty");
         require(_age >= 13, "you are too young");
         require(!storageContract.userExists(creator), "user already exists");
-        storageContract.createUser(creator, _name, _email, _age);
+        storageContract.createUser(creator, _name);
         emit UserCreated(block.timestamp, msg.sender);
     }
     
@@ -73,12 +72,6 @@ contract User{
 
     function updateName(string memory name) public mValidUser(msg.sender)   {
         storageContract.setName(msg.sender, name);
-    }
-    function updateEmail(string memory email) public mValidUser(msg.sender)   {
-        storageContract.setEmail(msg.sender, email);
-    }
-    function updateAge(uint age) public mValidUser(msg.sender)   {
-        storageContract.setAge(msg.sender, age);
     }
 
     function privateAccount() public mValidUser(msg.sender) {

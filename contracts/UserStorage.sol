@@ -6,8 +6,6 @@ contract UserStorage is Authorizable {
     struct Profile {
         address addr;
         string name;
-        string email;
-        uint age;
         bool deleted;
         bool isPrivateAccount;
         uint followCount;
@@ -29,12 +27,10 @@ contract UserStorage is Authorizable {
 		authorizeContract(userLogic);
 	}
 
-	function createUser(address creator, string memory _name, string memory _email, uint _age) external isAuthorized {
+	function createUser(address creator, string memory _name) external isAuthorized {
 		Profile storage user = users[creator];
 		user.addr = creator;
 		user.name = _name;
-		user.email = _email;
-		user.age = _age;
 		user.deleted = false;
 		user.isPrivateAccount = false;
 		user.followCount = 0;
@@ -56,7 +52,6 @@ contract UserStorage is Authorizable {
 	function newPost(address creator, uint postId) external isAuthorized {
 		users[creator].posts.push(postId);
 	}	
-
 
 	function getProfile(address user) external view isAuthorized returns (Profile memory) {
 		return users[user];
@@ -136,14 +131,6 @@ contract UserStorage is Authorizable {
 
 	function setName(address user, string memory name) external isAuthorized  {
 		users[user].name = name;
-	}		
-
-	function setEmail(address user, string memory email) external isAuthorized  {
-		users[user].email = email;
-	}		
-
-	function setAge(address user, uint age) external isAuthorized  {
-		users[user].age = age;
 	}		
 
 	function setPrivate(address user, bool p) external isAuthorized  {

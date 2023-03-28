@@ -10,6 +10,9 @@ contract AdsMarketStorage is Authorizable {
 	uint adsRevenueThisMonth;
 	mapping(address => uint) payouts;
 
+	// === EVENTS ===
+	event Withdraw(address withdrawer,uint amount);
+
 	constructor(Token _tokenContract) {
 		tokenContract = _tokenContract;		
 	}
@@ -49,5 +52,6 @@ contract AdsMarketStorage is Authorizable {
 	function withdraw(address payee, uint amt) external isAuthorized {
 		payouts[payee] -= amt;
 		tokenContract.transfer(payee, amt);
+		emit Withdraw(payee, amt);
 	}
 }

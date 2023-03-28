@@ -24,6 +24,13 @@ contract ContentModeration {
 	// minimum duration that a dispute must be open. this is to try to increase the number of votes to get more accurate results.
 	uint MIN_DISPUTE_PERIOD = 1 days;
 
+	// === EVENTS ===
+	event OpenDispute(uint postId, uint256 startDate);
+	event DisputeApproved(address[] votedApprove, uint postId, uint256 timeApproved);
+	event DisputeRejected(address[] votedReject, uint postId, uint256 timeRejected);
+	event DisputeTied(uint postId);
+
+
 	constructor(CMS _storageContract, RNG _rngContract, Post _postContract, Token _tokenContract, User _userContract) {
 		storageContract = _storageContract;
 		rngContract = _rngContract;
@@ -59,6 +66,7 @@ contract ContentModeration {
 
 		uint endTime = block.timestamp + MIN_DISPUTE_PERIOD;
 		storageContract.addDispute(creator, postId, reason, OPEN_DISPUTE_LOCKED_AMT, endTime);
+		emit OpenDispute(postId, block.timestamp);
 	}
 
 	// users can request for a random dispute to vote for . VOTE_LOCKED_AMT amount of tokens will be transferred from the voter to be locked in this dispute. 
@@ -141,6 +149,7 @@ contract ContentModeration {
 		storageContract.batchAddBalance(approvers, VOTE_LOCKED_AMT);
 		storageContract.batchAddBalance(rejectors, VOTE_LOCKED_AMT);
 		storageContract.addBalance(creator, OPEN_DISPUTE_LOCKED_AMT);
+		emit DisputeTied(postId);
 	}
 
 	function approved(uint postId, address creator) private {
@@ -168,6 +177,7 @@ contract ContentModeration {
 		(approveRewardPool, rejectRewardPool) = redistribute(approveRewardPool, rejectRewardPool, true);
 		storageContract.setApproveRewardPool(approveRewardPool);
 		storageContract.setRejectRewardPool(rejectRewardPool);
+		emit DisputeApproved(approvers, postId, block.timestamp);
 	}
 
 	function rejected(uint postId) private {
@@ -194,7 +204,8 @@ contract ContentModeration {
 		// then, redistribute accordingly			
 		(approveRewardPool, rejectRewardPool) = redistribute(approveRewardPool, rejectRewardPool, false);
 		storageContract.setApproveRewardPool(approveRewardPool);
-		storageContract.setRejectRewardPool(rejectRewardPool);	
+		storageContract.setRejectRewardPool(rejectRewardPool);
+		emit DisputeRejected(rejectors, postId, block.timestamp);	
 	}
 
 	function redistribute(uint approveRewardPool, uint rejectRewardPool, bool approveWon) private view returns (uint, uint) {

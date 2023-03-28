@@ -15,6 +15,10 @@ contract AdsMarket {
 	uint256 PAYOUT_EVERY = 30 days;
 	uint256 DISTRIBUTE_PERCENTAGE = 90; // percentage of the total ad revenue generated to distribute back to creators
 
+	// === EVENTS ===
+	event AdvertisementCreated(uint256 startDate, uint256 endDate);
+	
+
 	constructor(Post _postContract, Token _tokenContract, User _userContract, AdsMarketStorage _storageContract) {
 		owner = msg.sender;
 		postContract = _postContract;
@@ -43,6 +47,7 @@ contract AdsMarket {
 		storageContract.addAdsRevenueThisMonth(tokensRequired);
 
 		uint endTime = block.timestamp + daysToAdvertise * 1 days;
+		emit AdvertisementCreated(block.timestamp, endTime);
 		return postContract.createAd(msg.sender, caption, ipfsCID, endTime);
 	}
 

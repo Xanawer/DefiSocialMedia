@@ -26,8 +26,8 @@ contract Post{
 
 	// === EVENTS ===
 	event PostCreated(address creator, uint postId, uint256 timePosted);
-	event PostLiked(address UserLiked, uint postId);
-	event PostUnliked(address UserUnliked, uint postId);
+	event PostLiked(uint postId);
+	event PostUnliked(uint postId);
 	event PostDeleted(address creator, uint postId, uint256 timeDeleted);
 	event Commented(address commentor, uint postId, uint commentId, string comment);
 	event CommentDeleted(address commentor, uint postId, uint commentId, uint256 timeDeleted);	
@@ -180,7 +180,7 @@ contract Post{
 		address liker = msg.sender;
 		require(!storageContract.hasLiked(id, liker), "you have already liked this post");
 		storageContract.like(id, liker);
-		emit PostLiked(liker, id);
+		emit PostLiked(id);
 	}	
 
 	// unlike the post specified by `id`. the liker is the `msg.sender`
@@ -188,7 +188,7 @@ contract Post{
 		address unliker = msg.sender;
 		require(storageContract.hasLiked(id, unliker), "you have not liked this post");
 		storageContract.unlike(id, unliker);
-		emit PostUnliked(unliker, id);
+		emit PostUnliked(id);
 	}
 
 	// add a comment with `text` to post with id of `id`. the commentor is `msg.sender`.

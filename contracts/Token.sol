@@ -16,6 +16,9 @@ contract Token is ERC20 {
 	// emergency stop
 	bool contractStopped = false;
 
+
+	event EmergencyStop(uint256 timeStopped);
+
 	modifier emergencyStop() {
 		require(!contractStopped, "contract stopped for emergency");
 		_;
@@ -49,6 +52,7 @@ contract Token is ERC20 {
 
 	function setContractStopped(bool stop) public ownerOnly {
 		contractStopped = stop;
+		emit EmergencyStop(block.timestamp);
 	}
 
 	// stop any transfer if emergency stop is activated

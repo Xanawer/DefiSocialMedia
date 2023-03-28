@@ -7,6 +7,11 @@ contract User{
 	Post postContract;
 	UserStorage storageContract;
 
+    event UserCreated(uint256 timeAccountCreated, address userAddress);
+    event UserPrivate(uint256 timeAccountPrivatized, address userAddress);
+    event UserUnprivate(uint256 timeAccountUnprivate, address userAddress);
+    event UserDeleted(uint256 timeAccountDeleted, address userAddress);
+
     constructor(Post _postContract, UserStorage _storageContract) {
         postContract = _postContract;
 		storageContract = _storageContract;
@@ -50,6 +55,7 @@ contract User{
         require(_age >= 13, "you are too young");
         require(!storageContract.userExists(creator), "user already exists");
         storageContract.createUser(creator, _name, _email, _age);
+        emit UserCreated(block.timestamp, msg.sender);
     }
     
     // Function to retrieve user profile
@@ -77,11 +83,13 @@ contract User{
 
     function privateAccount() public mValidUser(msg.sender) {
         storageContract.setPrivate(msg.sender, true);
+        emit UserPrivate(block.timestamp, msg.sender);
     }
 
     function unprivateAccount() public mValidUser(msg.sender) {
 		address creator = msg.sender;
         storageContract.setPrivate(msg.sender, false);
+        emit UserUnprivate(block.timestamp, msg.sender);
 		address[] memory requests = storageContract.getFollowRequests(msg.sender);
         for (uint i = 0; i < requests.length; i++) {
 			address requester = requests[i];
@@ -136,5 +144,6 @@ contract User{
 		address creator = msg.sender;
         postContract.batchSetDeleted(storageContract.getAllPostIdsByUser(creator));
         storageContract.setDeleted(creator, true);
+        emit UserDeleted(block.timestamp, msg.sender);
     }	
 }

@@ -268,4 +268,13 @@ contract PostStorage is Authorizable {
 	function hasLiked(uint id, address liker) external view isAuthorized returns (bool) {
 		return postInfos[id].hasLiked[liker];
 	}			
+
+	function lastPostId() external view isAuthorized returns (uint) {
+		require(nextPostId > 1, "no posts");
+		return nextPostId - 1;
+	}	
+
+	function getViewCount(uint id) external view isAuthorized returns (uint) {
+		return posts[id].viewCount;
+	}
 }

@@ -33,20 +33,6 @@ contract User{
         _;
     }
 
-    // valid user defined as a user that exists and is not deleted
-    function validUser(address addr) public view returns (bool) {
-        return storageContract.userExists(addr) && !storageContract.isDeleted(addr);
-    }
-
-	function getAllPostIdsByUser(address creator) public view mValidUser(creator) returns (uint[] memory) {
-		return storageContract.getAllPostIdsByUser(creator);
-	}
-
-	function newPost(address creator, uint postId) public  mValidUser(creator) {
-		require(msg.sender == address(postContract), "post contract only");
-		storageContract.newPost(creator, postId);
-	}	
-
     // Function to create a new user
     function createUser(string memory _name, uint _age) public {
 		address creator = msg.sender;
@@ -56,6 +42,10 @@ contract User{
         storageContract.createUser(creator, _name);
         emit UserCreated(block.timestamp, msg.sender);
     }
+
+	function getAllPostIdsByUser(address creator) public view mValidUser(creator) returns (uint[] memory) {
+		return storageContract.getAllPostIdsByUser(creator);
+	}    
     
     // Function to retrieve user profile
     function getProfile() public view mValidUser(msg.sender) returns(UserStorage.Profile memory) {
@@ -66,12 +56,17 @@ contract User{
         return storageContract.getName(user);
     }
 
-    function getFollowerCount(address user) public view mValidUser(user)  returns(uint) {
-        return storageContract.getFollowCount(user);
-    }
-
     function updateName(string memory name) public mValidUser(msg.sender)   {
         storageContract.setName(msg.sender, name);
+    }    
+
+    // valid user defined as a user that exists and is not deleted
+    function validUser(address addr) public view returns (bool) {
+        return storageContract.userExists(addr) && !storageContract.isDeleted(addr);
+    }
+
+    function getFollowerCount(address user) public view mValidUser(user)  returns(uint) {
+        return storageContract.getFollowCount(user);
     }
 
     function privateAccount() public mValidUser(msg.sender) {
@@ -92,7 +87,7 @@ contract User{
         }
     }
 
-    function acceptFollower(address requester) public mValidUser(msg.sender) { 
+    function acceptFollower(address requester) public mValidUser(msg.sender) mValidUser(requester) { 
 		address creator = msg.sender;
         require(storageContract.hasFollowRequest(creator, requester), "follow request not found");
         // remove requester
@@ -102,15 +97,22 @@ contract User{
 		storageContract.incrFollowCount(creator);
     }
 
-    function removeFollower(address follower) public mValidUser(msg.sender) {
+    function removeFollower(address follower) public mValidUser(msg.sender) mValidUser(follower) {
 		address creator = msg.sender;
         require(storageContract.isFollowing(creator, follower), "follower not found");
         storageContract.removeFollower(creator, follower);
 		storageContract.decrFollowCount(creator);		
     }
 
-    function requestFollow(address requester) public mValidUser(msg.sender) mValidUser(requester)  {
-		address creator = msg.sender;
+    function unfollow(address creator) public mValidUser(msg.sender) mValidUser(creator) {
+        address follower = msg.sender;
+        require(storageContract.isFollowing(creator, follower), "you are not following this creator");
+        storageContract.removeFollower(creator, follower);
+        storageContract.decrFollowCount(creator);
+    }
+
+    function requestFollow(address creator) public mValidUser(msg.sender) mValidUser(creator)  {
+		address requester = msg.sender;
         require(!storageContract.isFollowing(creator, requester), "you have already followed this person");
         require(!storageContract.hasFollowRequest(creator, requester), "you have already requested to follow this person");
 
@@ -122,6 +124,11 @@ contract User{
             storageContract.addFollower(creator, requester);
 			storageContract.incrFollowCount(creator);
         }
+    }
+
+    function requestedToFollow(address creator) public view mValidUser(msg.sender) mValidUser(creator) returns (bool) {
+        address requester = msg.sender;
+        return storageContract.hasFollowRequest(creator, requester);
     }
 
     function isFollower(address creator, address follower) public view mValidUser(creator) mValidUser(follower)  returns (bool) {
@@ -139,4 +146,10 @@ contract User{
         storageContract.setDeleted(creator, true);
         emit UserDeleted(block.timestamp, msg.sender);
     }	
+
+
+	function newPost(address creator, uint postId) public mValidUser(creator) {
+		require(msg.sender == address(postContract), "post contract only");
+		storageContract.newPost(creator, postId);
+	}	    
 }

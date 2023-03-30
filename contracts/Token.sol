@@ -33,7 +33,7 @@ contract Token is ERC20 {
 		_;
 	}
 
-	function getTokens() public payable emergencyStop {
+	function buyTokens() public payable emergencyStop {
 		uint amt = msg.value / SELL_PRICE;
 		_mint(msg.sender, amt);
 	}

@@ -7,6 +7,7 @@ import "./User.sol";
 import "./Token.sol";
 
 contract ContentModeration {
+	address owner;
 	CMS storageContract;
 	RNG rngContract;
 	Token tokenContract;
@@ -37,6 +38,7 @@ contract ContentModeration {
 		postContract = _postContract;
 		tokenContract = _tokenContract;
 		userContract = _userContract;
+		owner = msg.sender;
 	}
 
 	modifier validUser(address user) {
@@ -128,7 +130,7 @@ contract ContentModeration {
 		// if we do not hit the minimum amount of voters, then we take it as the results of the dispute is not accurate, 
 		// and therefore all parties are refunded their locked tokens. The dispute is deleted, but the post remains flagged.
 		// the same applies for the case where the result is a tie.
-		if (numVoters <= MIN_VOTE_COUNT || numApprovers == numRejectors) {
+		if (numVoters < MIN_VOTE_COUNT || numApprovers == numRejectors) {
 			tie(postId, creator);
 		} else if (numApprovers > numRejectors) {
 			approved(postId, creator);
@@ -248,7 +250,12 @@ contract ContentModeration {
 	}
 
 	function withdraw(uint amt) public {
-		require(storageContract.getBalance(msg.sender) >= amt, "insufficient balance");
 		storageContract.withdraw(msg.sender, amt);
+	}
+
+	// for tests
+	function setMinVoteCount(uint count) public {
+		require(msg.sender == owner, "owner only");
+		MIN_VOTE_COUNT = count;
 	}
 }

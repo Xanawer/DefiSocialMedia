@@ -32,6 +32,7 @@ contract Feed {
 	// this returns the latest N posts, where N=POSTS_PER_SCROLL specified at the start of this contract
 	function startScroll() public returns (PostStorage.Post[] memory) {
 		// start idx = last element of array (where the lastest post is at)
+		require(storageContract.getGlobalFeedSize() > 0, "no posts in feed");
 		return scrollPosts(storageContract.getGlobalFeedSize() - 1);
 	}
 
@@ -45,13 +46,12 @@ contract Feed {
 	// return the next 10 (non-deleted && non-flagged) posts starting from startIdx.
 	// note that we count from the end of array to start of array, as the latest posts are the end of the array.
 	function scrollPosts(uint startIdx) private returns (PostStorage.Post[] memory) {
-		require(startIdx >= 0, "no more posts to scroll");
 		address viewer = msg.sender;
 		uint numPosts = 0;
 		uint idx = startIdx;
 		PostStorage.Post[] memory posts = new PostStorage.Post[](POSTS_PER_SCROLL);
 		// add up to `POSTS_PER_SCROLL` posts to result, or until there is no more posts from global feed to return (i.e idx < 0)
-		while (numPosts < POSTS_PER_SCROLL && idx >= 0) {
+		while (numPosts < POSTS_PER_SCROLL) {
 			// ADVERTISMENT INJECTION
 			if (numPosts == INSERT_AD_AT_IDX) {
 				bool found;
@@ -71,6 +71,11 @@ contract Feed {
 				posts[numPosts] = postStorageContract.getPost(postId);
 				numPosts++;
 			} 
+			if (idx == 0) {
+				// if we get here, we already checked the earliest/last post.. lets loop back to the latest post
+				idx = storageContract.getGlobalFeedSize() - 1;
+				break;
+			}
 			idx--;
 		}
 

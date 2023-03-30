@@ -57,8 +57,14 @@ contract NFT is ERC721URIStorage {
 	function _baseURI() internal view virtual override returns (string memory) {
         return baseURI;
     }
+	
+	function getBaseURI() public view returns (string memory) {
+		return _baseURI();
+	}
 
 	function setBaseURI(string memory __baseURI) public ownerOnly {
 		baseURI = __baseURI;
 	}
+	
+
 }

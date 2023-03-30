@@ -184,6 +184,7 @@ contract ContentModerationStorage is Authorizable {
 	}	
 
 	function withdraw(address user, uint amt) external isAuthorized {
+		require(unlockedBalance[user] >= amt, "insufficient balance");
 		unlockedBalance[user] -= amt;
 		tokenContract.transfer(user, amt);
 	}

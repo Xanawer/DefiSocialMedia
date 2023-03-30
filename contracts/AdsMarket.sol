@@ -42,7 +42,7 @@ contract AdsMarket {
 	// returns id of ad post created.
 	function createAd(string memory caption, string memory ipfsCID, uint daysToAdvertise) public validUser(msg.sender) returns (uint) {
 		uint tokensRequired = daysToAdvertise * ADVERTISING_COST_PER_DAY;
-		require(tokensRequired >= tokenContract.balanceOf(msg.sender), "you have insufficient tokens to advertise for the specified amount of days");
+		require(tokensRequired <= tokenContract.balanceOf(msg.sender), "you have insufficient tokens to advertise for the specified amount of days");
 		tokenContract.transferFrom(msg.sender, address(storageContract), tokensRequired);
 		storageContract.addAdsRevenueThisMonth(tokensRequired);
 
@@ -81,7 +81,6 @@ contract AdsMarket {
 
 	function withdraw(uint amt) public {
 		address payee = msg.sender;
-		require(storageContract.getPayout(payee) >= amt, "amt specified is more than your payout");
 		storageContract.withdraw(payee, amt);
 		emit WithdrawAdsPayout(payee, amt);
 	}

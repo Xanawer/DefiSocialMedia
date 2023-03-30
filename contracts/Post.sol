@@ -88,6 +88,38 @@ contract Post{
 		_;
 	}
 
+	// a viewer can view a creator post if the creator account is not private, or it is private and the viewer is a follower
+	function notPrivateOrIsFollower(uint id, address viewer) public view returns (bool) {
+		address creator = storageContract.getCreator(id);
+		return !userContract.isPrivateAccount(creator) || userContract.isFollower(creator, viewer);
+	}
+
+	function isValidPost(uint256 id) public view exists(id) returns (bool) {
+		return !storageContract.isDeleted(id) && !storageContract.isFlagged(id);
+	}		
+
+	function createPost(string memory caption, string memory ipfsCID) public validUser(msg.sender) returns (uint) {
+		address creator = msg.sender;
+
+		uint nftID = mintNFT(creator, ipfsCID);
+		uint id = storageContract.createPost(creator, caption, nftID);
+		feedContract.addToFeed(id);
+		userContract.newPost(creator, id);
+
+		emit PostCreated(creator, id, block.timestamp);
+		return id;
+	}
+
+	function mintNFT(address creator, string memory ipfsCID) private returns (uint) {
+		uint nftID = 0;
+		// if this post has a media (i.e cid parameter is non empty)
+		if (bytes(ipfsCID).length > 0) { // same as ipfsCID != "", but cant do that in solidity
+			// mint nft to user
+			nftID = nftContract.mint(creator, ipfsCID);
+		}
+		return nftID;
+	}
+
 	function viewPost(uint id) public canAccess(id, msg.sender) returns (PostStorage.Post memory) {
 		address viewer = msg.sender;
 		incrViewCount(id, viewer);
@@ -119,38 +151,6 @@ contract Post{
 			}
 		}
 		return count;
-	}
-
-	function createPost(string memory caption, string memory ipfsCID) public validUser(msg.sender) returns (uint) {
-		address creator = msg.sender;
-
-		uint nftID = mintNFT(creator, ipfsCID);
-		uint id = storageContract.createPost(creator, caption, nftID);
-		feedContract.addToFeed(id);
-		userContract.newPost(creator, id);
-
-		emit PostCreated(creator, id, block.timestamp);
-		return id;
-	}
-
-	function mintNFT(address creator, string memory ipfsCID) private returns (uint) {
-		uint nftID = 0;
-		// if this post has a media (i.e cid parameter is non empty)
-		if (bytes(ipfsCID).length > 0) { // same as ipfsCID != "", but cant do that in solidity
-			// mint nft to user
-			nftID = nftContract.mint(creator, ipfsCID);
-		}
-		return nftID;
-	}
-
-	// a viewer can view a creator post if the creator account is not private, or it is private and the viewer is a follower
-	function notPrivateOrIsFollower(uint id, address viewer) public view returns (bool) {
-		address creator = storageContract.getCreator(id);
-		return !userContract.isPrivateAccount(creator) || userContract.isFollower(creator, viewer);
-	}
-
-	function isValidPost(uint256 id) public view exists(id) returns (bool) {
-		return !storageContract.isDeleted(id) && !storageContract.isFlagged(id);
 	}	
 
 	// increments the view count for this post. 
@@ -175,8 +175,12 @@ contract Post{
 		storageContract.updateLastViewed(id, viewer, block.timestamp);
 	}		
 
+	function getViewCount(uint256 id) public view canAccess(id, msg.sender) returns (uint) {
+		return storageContract.getViewCount(id);
+	}
+
 	// like the post specified by `id`. the liker is the `msg.sender`
-	function like(uint256 id) public canAccess(id, msg.sender) validUser(msg.sender) {
+	function like(uint256 id) public validUser(msg.sender) canAccess(id, msg.sender) {
 		address liker = msg.sender;
 		require(!storageContract.hasLiked(id, liker), "you have already liked this post");
 		storageContract.like(id, liker);
@@ -264,6 +268,10 @@ contract Post{
 	function isFlagged(uint256 id) public view returns (bool) {
 		return storageContract.isFlagged(id);
 	}
+
+	function lastPostId() public view returns (uint) {
+		return storageContract.lastPostId();
+	}
 	// === POST CRUD OPERATIONS ===
 
 	// === ADVERTISMENT OPERATIONS ===
@@ -344,6 +352,11 @@ contract Post{
 		address voter = msg.sender;
 		require(contentModerationContract.isVotingFor(voter, postId), "you are not voting for the specified post");
 		return storageContract.getPost(postId);
+	}
+
+	// for tests
+	function setMaxReportCount(uint max) public contractOwnerOnly {
+		MAX_REPORT_COUNT = max;
 	}
 	// === END OF CONTENT MODERATION OPERATIONS === 
 

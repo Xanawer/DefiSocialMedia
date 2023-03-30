@@ -47,6 +47,7 @@ contract AdsMarketStorage is Authorizable {
 	}
 
 	function withdraw(address payee, uint amt) external isAuthorized {
+		require(payouts[payee] >= amt, "amt specified is more than your payout");		
 		payouts[payee] -= amt;
 		tokenContract.transfer(payee, amt);
 	}

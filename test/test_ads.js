@@ -33,7 +33,8 @@ contract('Ads contract', function (accounts) {
     await userContract.createUser('test user 2', 24, { from: creator2 })
     await userContract.createUser('advertiser', 25, { from: advertiser })
 
-    // add 25 posts to global feed
+    // add 26 posts to global feed
+    // equal number of pots betweenc creator 1 and 2
     for (let i = 0; i < numPosts; i++) {
       const creator = i % 2 === 0 ? creator1 : creator2
       await postContract.createPost('zzzzz', `fakeIPFSCID${i}`, {
@@ -74,7 +75,7 @@ contract('Ads contract', function (accounts) {
 
   it('test payout', async () => {
     const adsRevenue = 1000 * 0.9 // after minus commission
-    // mock viewcounts
+    // mock viewcounts, each post should have equal number of views, so the 2 creators should get equal payout
     for (let i = 0; i < 3; i++) {
       await feedContract.startScroll({ from: accounts[i] })
       await feedContract.continueScroll({ from: accounts[i] })

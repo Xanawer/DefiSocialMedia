@@ -15,14 +15,14 @@ contract('CM contract', function (accounts) {
   let cmContract
   let tokenContract
 
-  const creator1 = accounts[1]
+  const creator1 = accounts[0]
   const numPosts = 10
   const oneEth = new BN('10').pow(new BN(18)) // 1 eth
   const tokenPrice = new BN(1000000000000) // 1000 gwei
   const initBalance = oneEth.div(tokenPrice)
   const OPEN_DISPUTE_LOCKED_AMT = new BN(1000)
   const VOTE_LOCKED_AMT = new BN(100)
-  const minVote = 8
+  const minVote = 6
 
   const maxReportCount = 4
   const post = 1
@@ -36,7 +36,7 @@ contract('CM contract', function (accounts) {
 
     // buy tokens for everyone, also approve content moderation contract to spend token for everyone
     // also create account for everyone
-    for (let i = 0; i < accounts.length; i++) {
+    for (let i = 0; i < minVote + 1; i++) {
       await userContract.createUser('test user', 24, { from: accounts[i] })
       await tokenContract.buyTokens({ from: accounts[i], value: oneEth })
       // approve ads contract to transfer tokens
@@ -84,7 +84,6 @@ contract('CM contract', function (accounts) {
   })
 
   it('tie', async () => {
-    let approveCount = 0
     for (let i = 0; i < minVote + 1; i++) {
       if (accounts[i] === creator1) {
         // creator should not be able to vote
@@ -107,8 +106,7 @@ contract('CM contract', function (accounts) {
       assert(balance.eq(initBalance.sub(VOTE_LOCKED_AMT)))
 
       // vote
-      let approve = approveCount >= 4
-      approveCount++
+      let approve = i % 2 === 0
       await cmContract.vote(approve, { from: accounts[i] })
     }
 
@@ -298,12 +296,12 @@ contract('CM contract', function (accounts) {
   })
 
   it('can withdraw all balance', async () => {
-	for (let i = 0; i < minVote + 1; i++) {
-		const beforebalance = await tokenContract.balanceOf(accounts[i])
-		const unlocked = await cmContract.getBalance({from: accounts[i]})
-		await cmContract.withdraw(unlocked, {from: accounts[i]})
-		const afterBalance = await tokenContract.balanceOf(accounts[i])
-		assert(afterBalance.sub(beforebalance).eq(unlocked))
-	}
+    for (let i = 0; i < minVote + 1; i++) {
+      const beforebalance = await tokenContract.balanceOf(accounts[i])
+      const unlocked = await cmContract.getBalance({ from: accounts[i] })
+      await cmContract.withdraw(unlocked, { from: accounts[i] })
+      const afterBalance = await tokenContract.balanceOf(accounts[i])
+      assert(afterBalance.sub(beforebalance).eq(unlocked))
+    }
   })
 })

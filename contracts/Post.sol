@@ -169,6 +169,11 @@ contract Post{
 		// post view count
 		storageContract.incrementPostViewCount(id);
 
+		if (storageContract.isAd(id)){
+			// if this post is an ad, dont continue to increase its ads revenue viewcount
+			return;
+		}
+
 		// viewcount for this month
 		storageContract.incrementMonthlyViewCount(id);
 		storageContract.incrementMonthlyTotalViewCount();		

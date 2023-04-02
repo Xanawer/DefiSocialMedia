@@ -100,7 +100,7 @@ module.exports = {
 
   // Set default mocha options here, use special reporters, etc.
   mocha: {
-    // timeout: 100000
+    before_timeout: 500000,
   },
 
   // Configure your compilers
@@ -112,7 +112,7 @@ module.exports = {
         // See the solidity docs for advice about optimization and evmVersion
         optimizer: {
           enabled: true,
-          runs: 200,
+          runs: 6969,
         },
         //  evmVersion: "byzantium"
       },

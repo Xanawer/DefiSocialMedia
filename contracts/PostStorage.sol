@@ -61,6 +61,8 @@ contract PostStorage is Authorizable {
 	MonthlyViewInfo monthlyViewInfo;
 	// list of all of the current advertisements
 	Ad[] ads;	
+	// mapping of ad id => bool (true if ad exists)
+	mapping(uint => bool) adExists;
 
 	function init(address postLogic, address feedContract) public ownerOnly {
 		authorizeContract(postLogic);
@@ -206,6 +208,8 @@ contract PostStorage is Authorizable {
 		Ad storage ad = ads.push();
 		ad.postId = id;
 		ad.endTime = endTime;
+		
+		adExists[id] = true;
 	}
 
 	function getAdsCount() external view isAuthorized returns (uint) {
@@ -217,8 +221,15 @@ contract PostStorage is Authorizable {
 	}	
 
 	function removeAdByIdx(uint idx) external isAuthorized {
+		uint id = ads[idx].postId;
+		adExists[id] = false;
+
 		ads[idx] = ads[ads.length - 1];
 		ads.pop();
+	}		
+
+	function isAd(uint id) external view isAuthorized returns (bool) {
+		return adExists[id];
 	}			
 
 	function postExists(uint id) external view isAuthorized returns (bool) {

@@ -21,7 +21,7 @@ contract NFT is ERC721URIStorage {
 		_;
 	}
 
-	constructor() ERC721("DefiSocialMediaNFT", "DSMNFT") {
+	constructor() ERC721("DSM NFT", "DSMNFT") {
 		owner = msg.sender;
 		nextTokenID = 1; // id = 0 is reserved for indicating post with no media
 	}
